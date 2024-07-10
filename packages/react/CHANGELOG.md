@@ -1,5 +1,20 @@
 # @triplit/react
 
+## 0.3.72
+
+### Patch Changes
+
+- Updated dependencies [20b8bca]
+  - @triplit/client@0.3.68
+
+## 0.3.71
+
+### Patch Changes
+
+- 8caa826: add JSDoc comments
+- Updated dependencies [6914e65]
+  - @triplit/client@0.3.67
+
 ## 0.3.70
 
 ### Patch Changes
