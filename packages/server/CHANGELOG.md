@@ -1,5 +1,29 @@
 # @triplit/server
 
+## 0.4.1
+
+### Patch Changes
+
+- f2e5cc21: Add healthcheck endpoint
+- Updated dependencies [28d32b51]
+- Updated dependencies [0139e1a4]
+  - @triplit/db@0.3.65
+  - @triplit/client@0.4.1
+  - @triplit/server-core@0.3.68
+
+## 0.4.0
+
+### Minor Changes
+
+- f9470ad1: Add basic support for syncing server with an upstream server
+
+### Patch Changes
+
+- Updated dependencies [ba9f0d6c]
+- Updated dependencies [6d249ce2]
+- Updated dependencies [f9470ad1]
+  - @triplit/client@0.4.0
+
 ## 0.3.72
 
 ### Patch Changes

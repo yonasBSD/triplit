@@ -263,6 +263,7 @@ export class Connection {
           );
       }
     } catch (e) {
+      console.error(e);
       return this.sendErrorResponse(
         message.type,
         isTriplitError(e)

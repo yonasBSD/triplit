@@ -1,5 +1,25 @@
 # @triplit/client
 
+## 0.4.1
+
+### Patch Changes
+
+- 0139e1a4: Improve support for nested queries and results, add subquery to query builder"
+- Updated dependencies [28d32b51]
+- Updated dependencies [0139e1a4]
+  - @triplit/db@0.3.65
+
+## 0.4.0
+
+### Minor Changes
+
+- f9470ad1: Add basic support for syncing server with an upstream server
+
+### Patch Changes
+
+- ba9f0d6c: more intelligently initialize workerClient connecting state
+- 6d249ce2: throw when browser APIs invoked but not available
+
 ## 0.3.84
 
 ### Patch Changes
