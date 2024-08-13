@@ -152,11 +152,11 @@ async function addIndexesToTransaction(
       if (isExpired) {
         expiredAVE.push(['AVE', attribute, value, id, timestamp]);
       } else {
-        scopedTx.set(['AVE', attribute, value, id, timestamp], {
+        await scopedTx.set(['AVE', attribute, value, id, timestamp], {
           expired: isExpired,
         });
       }
-      scopedTx.set(
+      await scopedTx.set(
         [
           'clientTimestamp',
           (timestamp as Timestamp)[1],
@@ -406,13 +406,11 @@ export class TripleStore<StoreKeys extends string = any>
           hooks: this.hooks,
         });
         let output: Output | undefined;
-        if (tx.isCancelled) return { tx, output };
+        if (tx.isCanceled) return { tx, output };
         try {
           output = await callback(tx);
         } catch (e) {
-          if (e instanceof WriteRuleError) {
-            await tx.cancel();
-          }
+          await tx.cancel();
           throw e;
         }
         return { tx, output };
@@ -424,7 +422,7 @@ export class TripleStore<StoreKeys extends string = any>
         ? JSON.stringify(tx.assignedTimestamp)
         : undefined,
       output,
-      isCancelled: tx.isCancelled,
+      isCanceled: tx.isCanceled,
     };
   }
 

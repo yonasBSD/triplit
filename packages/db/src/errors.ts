@@ -559,3 +559,30 @@ export class QueryNotPreparedError extends TriplitError {
     this.status = STATUS_CODES['Internal Server Error'];
   }
 }
+
+export class TransactionAlreadyCommittedError extends TriplitError {
+  constructor(...args: any[]) {
+    super(...args);
+    this.name = 'TransactionAlreadyCommittedError';
+    this.baseMessage = `This transaction has already been committed.`;
+    this.status = STATUS_CODES['Bad Request'];
+  }
+}
+
+export class TransactionAlreadyCanceledError extends TriplitError {
+  constructor(...args: any[]) {
+    super(...args);
+    this.name = 'TransactionAlreadyCanceledError';
+    this.baseMessage = `This transaction has already been canceled.`;
+    this.status = STATUS_CODES['Bad Request'];
+  }
+}
+
+export class InvalidTransactionStateError extends TriplitError {
+  constructor(...args: any[]) {
+    super(...args);
+    this.name = 'InvalidTransactionStateError';
+    this.baseMessage = `This transaction is in an invalid state. This indicates a bug. Please inform the Triplit team.`;
+    this.status = STATUS_CODES['Internal Server Error'];
+  }
+}

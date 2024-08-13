@@ -1,5 +1,17 @@
 # @triplit/db
 
+## 0.3.67
+
+### Patch Changes
+
+- 38bdff77: temporarily loosen restrictions on filter inputs
+
+## 0.3.66
+
+### Patch Changes
+
+- 73d638ec: Fixup async bugs
+
 ## 0.3.65
 
 ### Patch Changes
