@@ -55,6 +55,7 @@ import {
 import { prepareQuery } from './query/prepare.js';
 import { getRolesFromSession } from './schema/permissions.js';
 import { diffSchemas } from './schema/diff.js';
+import { genToArr } from './utils/generator.js';
 
 const DEFAULT_CACHE_DISABLED = true;
 
@@ -196,6 +197,7 @@ export interface DBFetchOptions {
   scope?: string[];
   stateVector?: Map<string, number>;
   noCache?: boolean;
+  skipIndex?: boolean;
 }
 
 export function ruleToTuple(
@@ -801,6 +803,7 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
         schema,
         cache: noCache ? undefined : this.cache,
         skipRules: options.skipRules,
+        skipIndex: options.skipIndex,
       }
     );
     this.logger.debug('fetch END', { query, result: results });
@@ -837,6 +840,7 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
           {
             schema: schema,
             stateVector: options.stateVector,
+            skipRules: options.skipRules,
           }
         )
       ).triples.values(),
@@ -930,6 +934,7 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
           cache: noCache ? undefined : this.cache,
           skipRules: options.skipRules,
           stateVector: options.stateVector,
+          skipIndex: options.skipIndex,
         }
       );
       return unsub;
@@ -981,6 +986,7 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
           skipRules: options.skipRules,
           stateVector: options.stateVector,
           cache: noCache ? undefined : this.cache,
+          skipIndex: options.skipIndex,
         }
       );
       return unsub;
@@ -1211,9 +1217,9 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
     // Each entity has a hidden _collection attribute which the value
     // is just the name of the collection it belongs to
     // e.g. { id: '123', name: 'alice', _collection: 'users'}
-    const collectionMetaTriples = await this.tripleStore.findByAttribute([
-      '_collection',
-    ]);
+    const collectionMetaTriples = await genToArr(
+      this.tripleStore.findByAttribute(['_collection'])
+    );
 
     const stats = new Map();
     for (let trip of collectionMetaTriples) {
@@ -1234,7 +1240,7 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
     } else {
       // Just delete triples
       await this.tripleStore.transact(async (tx) => {
-        const allTriples = await tx.findByEntity();
+        const allTriples = await genToArr(tx.findByEntity());
         // Filter out synced metadata
         const dataTriples = allTriples.filter(
           ({ id }) => !id.includes('_metadata')

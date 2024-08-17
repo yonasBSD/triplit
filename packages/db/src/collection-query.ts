@@ -76,6 +76,7 @@ import {
 } from './query/filters.js';
 import { prepareQuery } from './query/prepare.js';
 import { SessionRole } from './schema/permissions.js';
+import { arrToGen, genToArr, mapGen } from './utils/generator.js';
 
 export default function CollectionQueryBuilder<
   M extends Models<any, any> | undefined,
@@ -176,9 +177,10 @@ async function getOrderSetForQuery(
       lessThanCursor: inclusive ? undefined : ltArg,
       lessThanOrEqualCursor: inclusive ? ltArg : undefined,
     };
-    const orderedTriples = await tx.findValuesInRange(
-      [query.collectionName, ...attrPath],
-      rangeParams
+    // TODO ideally we should return an async iterable here
+    // instead of converting the entire result to an array
+    const orderedTriples = await genToArr(
+      tx.findValuesInRange([query.collectionName, ...attrPath], rangeParams)
     );
     // Only take max timestamps for each entity-attribute because there could be dupes
     const entityAttributes = new Map<string, Timestamp>();
@@ -197,17 +199,17 @@ async function getOrderSetForQuery(
         }
       }
     }
-    return entityIds;
+    return entityIds.values();
   }
   return undefined;
 }
 
-async function getFilterSetForQuery(
+function getFilterSetForQuery(
   tx: TripleStoreApi,
   query: CollectionQuery<any, any>,
   schema: Models<any, any> | undefined,
   fulfilled: QueryFulfillmentTracker
-) {
+): AsyncIterable<string> | undefined {
   const { where } = query;
   const [filterIdx, filterType, dataType] = findCandidateFilter(query, schema);
   if (filterIdx === -1) return undefined;
@@ -225,19 +227,18 @@ async function getFilterSetForQuery(
       rangePair = where![rangePairIndex] as FilterStatement<any, any>;
       fulfilled.where[rangePairIndex] = true;
     }
-    return new Set(
-      (await performRangeScan(tx, query, [filterMatch, rangePair])).map(
-        (t) => t.id
-      )
+    return mapGen(
+      performRangeScan(tx, query, [filterMatch, rangePair]),
+      (t) => t.id
     );
+    return;
   }
   if (filterType === 'equality') {
     // Not used yet, i think some parts of AVE scan imply we still need to re-evaluate the filter
     fulfilled.where[filterIdx] = true;
-    return new Set(
-      (await performEqualityScan(tx, query, filterMatch, dataType)).map(
-        (t) => t.id
-      )
+    return mapGen(
+      performEqualityScan(tx, query, filterMatch, dataType),
+      (t) => t.id
     );
   }
 
@@ -251,7 +252,7 @@ const GT_OPS = ['>', '>='];
 const LT_OPS = ['<', '<='];
 const RANGE_OPS = [...GT_OPS, ...LT_OPS] as const;
 
-async function performRangeScan<
+async function* performRangeScan<
   M extends Models<any, any> | undefined,
   Q extends CollectionQuery<M, any>
 >(
@@ -285,10 +286,7 @@ async function performRangeScan<
         : undefined,
   };
 
-  return await tx.findValuesInRange(
-    [collectionName, ...attribute],
-    rangeParams
-  );
+  yield* tx.findValuesInRange([collectionName, ...attribute], rangeParams);
 }
 
 // TODO: move this to data types, similar hack as compareCursors
@@ -300,7 +298,7 @@ function safeFilterRangeConstraint(value: QueryValue): TupleValue {
   return value;
 }
 
-async function performEqualityScan<
+async function* performEqualityScan<
   M extends Models<any, any> | undefined,
   Q extends CollectionQuery<M, any>
 >(
@@ -308,12 +306,14 @@ async function performEqualityScan<
   query: Q,
   filter: FilterStatement<M, any>,
   dataType: DataType | undefined
-) {
+): AsyncGenerator<TripleRow> {
   if (dataType?.type === 'query' || dataType?.type === 'record') return [];
   if (dataType?.type === 'set') {
-    return await performSetEqualityScan(tx, query, filter);
+    yield* performSetEqualityScan(tx, query, filter);
+    return;
   }
-  return await performValueEqualityScan(tx, query, filter);
+  yield* performValueEqualityScan(tx, query, filter);
+  return;
 }
 
 function findRangeFilter(
@@ -390,75 +390,75 @@ function findCandidateFilter(
   return [-1, undefined, undefined];
 }
 
-async function performValueEqualityScan(
+async function* performValueEqualityScan(
   tx: TripleStoreApi,
   query: CollectionQuery<any, any>,
   filter: FilterStatement<any, any>
 ) {
-  return await tx.findByAVE([
+  yield* tx.findByAVE([
     [query.collectionName, ...filter[0].split('.')],
     // @ts-expect-error
     filter[2],
   ]);
 }
 
-async function performSetEqualityScan(
+async function* performSetEqualityScan(
   tx: TripleStoreApi,
   query: CollectionQuery<any, any>,
   filter: FilterStatement<any, any>
 ) {
-  return await tx.findByAVE([
+  yield* tx.findByAVE([
     [query.collectionName, ...filter[0].split('.'), filter[2]],
     true,
   ]);
 }
 
-export async function getCollectionIds(
+export function getCollectionIds(
   tx: TripleStoreApi,
   query: CollectionQuery<any, any>
 ) {
-  return Array.from(
-    new Set(
-      (await tx.findByAVE([['_collection'], query.collectionName])).map(
-        (t) => t.id
-      )
-    )
+  return mapGen(
+    tx.findByAVE([['_collection'], query.collectionName]),
+    (t) => t.id
   );
 }
 
 export async function getCandidateEntityIds(
   tx: TripleStoreApi,
   query: CollectionQuery<any, any>,
-  schema?: Models<any, any> | undefined
+  options: FetchFromStorageOptions = {}
 ): Promise<{
-  candidates: string[];
+  candidates: AsyncIterable<string> | Iterable<string>;
   fulfilled: QueryFulfillmentTracker;
 }> {
+  const { schema, skipIndex } = options;
   const fulfilled: QueryFulfillmentTracker = {
     where: query.where ? new Array(query.where.length).fill(false) : [],
     order: query.order ? new Array(query.order.length).fill(false) : [],
     after: !query.after,
   };
-  const entityId = getIdFilterFromQuery(query);
-  if (entityId) {
-    return { candidates: [entityId], fulfilled };
+
+  if (!skipIndex) {
+    const entityId = getIdFilterFromQuery(query);
+    if (entityId) {
+      return { candidates: arrToGen([entityId]), fulfilled };
+    }
+
+    const filterSet = getFilterSetForQuery(tx, query, schema, fulfilled);
+    if (filterSet) {
+      return { candidates: filterSet, fulfilled };
+    }
+
+    const orderSet = await getOrderSetForQuery(tx, query, schema, fulfilled);
+    if (orderSet) {
+      return { candidates: orderSet, fulfilled };
+    }
+
+    // TODO: evaluate performing both order and filter scans
+    // Initial observations are that order scans are slow / longer, should investigate further
   }
-
-  const filterSet = await getFilterSetForQuery(tx, query, schema, fulfilled);
-  if (filterSet) {
-    return { candidates: Array.from(filterSet), fulfilled };
-  }
-
-  const orderSet = await getOrderSetForQuery(tx, query, schema, fulfilled);
-  if (orderSet) {
-    return { candidates: Array.from(orderSet), fulfilled };
-  }
-
-  // TODO: evaluate performing both order and filter scans
-  // Initial observations are that order scans are slow / longer, should investigate further
-
   return {
-    candidates: await getCollectionIds(tx, query),
+    candidates: getCollectionIds(tx, query),
     fulfilled,
   };
 }
@@ -565,10 +565,9 @@ async function getTriplesAfterStateVector(
     allClientIds.map((clientId) => [clientId, stateVector.get(clientId) ?? 0])
   );
   for (const [clientId, tick] of completeStateVector) {
-    const triples = await tx.findByClientTimestamp(clientId, 'gt', [
-      tick,
-      clientId,
-    ]);
+    const triples = await genToArr(
+      tx.findByClientTimestamp(clientId, 'gt', [tick, clientId])
+    );
     for (const triple of triples) {
       allTriples.push(triple);
     }
@@ -611,7 +610,7 @@ export async function fetchDeltaTriples<
     return acc;
   }, new Map());
   for (const changedEntityId of changedEntityTriples.keys()) {
-    const entityTriples = await tx.findByEntity(changedEntityId);
+    const entityTriples = await genToArr(tx.findByEntity(changedEntityId));
     const entityBeforeStateVector = getEntitiesAtStateVector(
       entityTriples,
       stateVector
@@ -867,7 +866,7 @@ function LoadCandidateEntities(
   tx: TripleStoreApi
 ): MapFunc<string, [string, QueryPipelineData]> {
   return async (id) => {
-    const entityTriples = await tx.findByEntity(id);
+    const entityTriples = await genToArr(tx.findByEntity(id));
     const entity = triplesToEntities(entityTriples).get(id)?.data;
     const externalId = stripCollectionFromId(id);
     return [
@@ -1160,6 +1159,7 @@ export type FetchFromStorageOptions = {
   skipRules?: boolean;
   cache?: VariableAwareCache<any>;
   stateVector?: Map<string, number>;
+  skipIndex?: boolean;
 };
 
 export type FetchExecutionContext = {
@@ -1221,7 +1221,7 @@ export async function fetch<
   // Load possible entity ids from indexes
   // TODO lazy load as needed using a cursor or iterator rather than loading entire index at once
   const { candidates, fulfilled: clausesFulfilled } =
-    await getCandidateEntityIds(tx, queryWithInsertedVars, schema);
+    await getCandidateEntityIds(tx, queryWithInsertedVars, options);
 
   const resultTriples: Map<string, TripleRow[]> = new Map();
 
@@ -1316,11 +1316,15 @@ export async function fetch<
     })
     .map<[string, any]>(([id, { entity }]) => [id, entity]);
 
-  const entities = await (pipeline as Pipeline<string, [string, any]>).run(
-    candidates
-  );
+  // @ts-expect-error
+  const entities: [string, any][] | AsyncGenerator<[string, any]> = await (
+    pipeline as Pipeline<string, [string, any]>
+  ).run(candidates);
+
+  const entitiesArr =
+    entities instanceof Array ? entities : await genToArr(entities);
   return {
-    results: new Map(entities),
+    results: new Map(entitiesArr),
     triples: resultTriples,
   };
 }
@@ -1523,6 +1527,7 @@ export function subscribeResultsAndTriples<
                 schema: options.schema,
                 skipRules: options.skipRules,
                 cache: options.cache,
+                skipIndex: options.skipIndex,
                 // TODO: do we need to pass state vector here?
               }
             );
@@ -1572,8 +1577,10 @@ export function subscribeResultsAndTriples<
           const windowSize = nextResult.size;
 
           for (const entity of updatedEntitiesForQuery) {
-            const entityTriples = await tripleStore.findByEntity(
-              appendCollectionToId(query.collectionName, entity)
+            const entityTriples = await genToArr(
+              tripleStore.findByEntity(
+                appendCollectionToId(query.collectionName, entity)
+              )
             );
 
             function entityMatchesAfter(
@@ -1694,6 +1701,7 @@ export function subscribeResultsAndTriples<
                   skipRules: options.skipRules,
                   // State vector needed in backfill?
                   cache: options.cache,
+                  skipIndex: options.skipIndex,
                 }
               );
               for (const entry of backFilledResults.results) {
