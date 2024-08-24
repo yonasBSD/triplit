@@ -3,7 +3,7 @@
   "repository": "github:aspen-cloud/triplit",
   "homepage": "https://triplit.dev",
   "license": "AGPL-3.0-only",
-  "version": "0.3.69",
+  "version": "0.3.70",
   "source": "./src/index.ts",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -37,7 +37,7 @@
     "build:watch": "tsc -w",
     "lint:build": "npx publint",
     "lint": "tsc --noEmit",
-    "test": "yarn test:unit",
+    "test": "yarn test:unit && yarn typecheck",
     "test:unit": "vitest run",
     "test:watch": "vitest watch",
     "test-coverage": "vitest --coverage",
@@ -67,7 +67,7 @@
     "rxjs": "^7.8.1",
     "tinybench": "^2.5.0",
     "typescript": "^5.2.2",
-    "vitest": "^1.3.1"
+    "vitest": "^2.0.5"
   },
   "dependencies": {
     "@sinclair/typebox": "^0.32.15",

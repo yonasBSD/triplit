@@ -1,4 +1,4 @@
-import DB, {
+import {
   CollectionQuery,
   TripleRow,
   TriplitError,
@@ -10,7 +10,6 @@ import DB, {
   Timestamp,
   TripleStoreApi,
   FetchResult,
-  SchemaQueries,
   Models,
   Unalias,
   ToQuery,
@@ -57,7 +56,7 @@ export class SyncEngine {
   private reconnectTimeoutDelay = 250;
   private reconnectTimeout: any;
 
-  private client: TriplitClient<any>;
+  private client: TriplitClient;
   private syncOptions: SyncOptions;
 
   private connectionChangeHandlers: Set<(status: ConnectionStatus) => void> =
@@ -665,10 +664,9 @@ export class SyncEngine {
   /**
    * @hidden
    */
-  async fetchQuery<
-    M extends Models<any, any> | undefined,
-    CQ extends SchemaClientQueries<M>
-  >(query: CQ) {
+  async fetchQuery<M extends Models, CQ extends SchemaClientQueries<M>>(
+    query: CQ
+  ) {
     try {
       // Simpler to serialize triples and reconstruct entities on the client
       const triples = await this.getRemoteTriples(query);
@@ -679,7 +677,7 @@ export class SyncEngine {
           stripCollectionFromId(id),
           convertEntityToJS(entity.data as any, schema),
         ])
-      ) as Unalias<FetchResult<ToQuery<M, CQ>>>;
+      ) as Unalias<FetchResult<M, ToQuery<M, CQ>>>;
     } catch (e) {
       if (e instanceof TriplitError) throw e;
       if (e instanceof Error)

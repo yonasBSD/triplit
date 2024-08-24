@@ -50,6 +50,8 @@ export {
   stripCollectionFromId,
   appendCollectionToId,
   logSchemaChangeViolations,
+  getVariableComponents,
+  isValueVariable,
 } from './db-helpers.js';
 export type {
   TripleRow,
@@ -64,17 +66,11 @@ export {
   hashSchemaJSON,
   getSchemaFromPath,
 } from './schema/schema.js';
+export { getRolesFromSession } from './schema/permissions.js';
 export { Schema } from './schema/builder.js';
 export { diffSchemas, getSchemaDiffIssues } from './schema/diff.js';
 export type { TObject } from './schema/schema.js';
-export type {
-  InsertTypeFromModel,
-  UpdateTypeFromModel,
-  Model,
-  Models,
-  RelationAttributes,
-  Roles,
-} from './schema/types';
+export * from './schema/types/index.js';
 export type {
   AttributeDefinition,
   CollectionAttributeDefinition,
@@ -96,7 +92,7 @@ export { QueryBuilder } from './query/builder.js';
 export type {
   TimestampedTypeFromModel as TypeFromModel, // TODO: dont alias
 } from './collection-query.js';
-export type * from './query/types';
+export type * from './query/types/index.js';
 export { default as Builder } from './utils/builder.js';
 export type { toBuilder } from './utils/builder.js';
 export { timestampedObjectToPlainObject } from './utils.js';

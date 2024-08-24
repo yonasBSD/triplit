@@ -1,13 +1,13 @@
 import {
   FetchExecutionContext,
   FetchFromStorageOptions,
-  QueryPipelineData,
   loadSubquery,
 } from '../collection-query.js';
 import { Operator } from '../data-types/base.js';
 import DB from '../db.js';
 import { InvalidFilterError, QueryNotPreparedError } from '../errors.js';
 import {
+  EntityData,
   EntityPointer,
   isBooleanFilter,
   isExistsFilter,
@@ -30,57 +30,36 @@ import {
 /**
  * During query execution, determine if an entity satisfies a filter
  */
-export async function satisfiesFilter<
-  M extends Models<any, any> | undefined,
-  Q extends CollectionQuery<M, any>
->(
-  db: DB<M>,
+export async function satisfiesFilter<Q extends CollectionQuery>(
   tx: TripleStoreApi,
   query: Q,
   executionContext: FetchExecutionContext,
   options: FetchFromStorageOptions,
-  pipelineItem: QueryPipelineData,
-  filter: WhereFilter<M, Q['collectionName']>
+  entityEntry: [entityId: string, entity: EntityData],
+  filter: WhereFilter<any, any>
 ): Promise<boolean> {
   if (isBooleanFilter(filter)) return filter;
   if (isFilterGroup(filter)) {
     const { mod, filters } = filter;
     if (mod === 'and') {
       return await everyAsync(filters, (f) =>
-        satisfiesFilter(
-          db,
-          tx,
-          query,
-          executionContext,
-          options,
-          pipelineItem,
-          f
-        )
+        satisfiesFilter(tx, query, executionContext, options, entityEntry, f)
       );
     }
     if (mod === 'or') {
       return await someAsync(filters, (f) =>
-        satisfiesFilter(
-          db,
-          tx,
-          query,
-          executionContext,
-          options,
-          pipelineItem,
-          f
-        )
+        satisfiesFilter(tx, query, executionContext, options, entityEntry, f)
       );
     }
     return false;
   }
   if (isSubQueryFilter(filter)) {
     return await satisfiesRelationalFilter(
-      db,
       tx,
       query,
       executionContext,
       options,
-      pipelineItem,
+      entityEntry,
       filter
     );
   }
@@ -91,20 +70,19 @@ export async function satisfiesFilter<
     throw new QueryNotPreparedError('Untranslated exists filter');
   }
 
-  return satisfiesFilterStatement(query, options, pipelineItem, filter);
+  return satisfiesFilterStatement(query, options, entityEntry[1], filter);
 }
 
 async function satisfiesRelationalFilter<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   Q extends CollectionQuery<M, any>
 >(
-  db: DB<M>,
   tx: TripleStoreApi,
   query: Q,
   executionContext: FetchExecutionContext,
   options: FetchFromStorageOptions,
-  pipelineItem: QueryPipelineData,
-  filter: SubQueryFilter
+  entityEntry: [entityId: string, entity: EntityData],
+  filter: SubQueryFilter<M, Q['collectionName']>
 ) {
   const { exists: subQuery } = filter;
   const existsSubQuery = {
@@ -112,61 +90,42 @@ async function satisfiesRelationalFilter<
     limit: 1,
   };
 
-  const { results: subQueryResult, triples } = await loadSubquery(
-    db,
+  const subQueryResult = await loadSubquery(
     tx,
     query,
     existsSubQuery,
     'one',
     executionContext,
     options,
-    pipelineItem.entity
+    'exists',
+    entityEntry
   );
-  const exists = !!subQueryResult;
-  if (!exists) return false;
-  for (const tripleSet of triples.values()) {
-    for (const triple of tripleSet) {
-      pipelineItem.existsFilterTriples.push(triple);
-    }
-  }
 
-  return true;
+  if (subQueryResult) executionContext.fulfillmentEntities.add(subQueryResult);
+  return !!subQueryResult;
 }
 
 function satisfiesFilterStatement<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   Q extends CollectionQuery<M, any>
 >(
   query: Q,
   options: FetchFromStorageOptions,
-  pipelineItem: QueryPipelineData,
+  entity: EntityData,
   filter: FilterStatement<M, Q['collectionName']>
 ) {
   const { collectionName } = query;
   const { schema } = options;
-  const { entity } = pipelineItem;
   const [path, op, filterValue] = filter;
   const dataType = schema
     ? getAttributeFromSchema(path.split('.'), schema, collectionName)
     : undefined;
   // If we have a schema handle specific cases
   if (dataType && dataType.type === 'set') {
-    return satisfiesSetFilter(
-      entity,
-      path,
-      // @ts-expect-error
-      op,
-      filterValue
-    );
+    return satisfiesSetFilter(entity, path, op, filterValue);
   }
   // Use register as default
-  return satisfiesRegisterFilter(
-    entity,
-    path,
-    // @ts-expect-error
-    op,
-    filterValue
-  );
+  return satisfiesRegisterFilter(entity, path, op, filterValue);
 }
 
 // TODO: this should probably go into the set defintion

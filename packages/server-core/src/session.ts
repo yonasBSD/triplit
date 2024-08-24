@@ -448,7 +448,7 @@ export class Session {
     return ServerResponse(result.successful ? 200 : 409, result);
   }
 
-  async queryTriples({ query }: { query: CollectionQuery<any, any> }) {
+  async queryTriples({ query }: { query: CollectionQuery }) {
     if (!query)
       return errorResponse(
         new TriplitError('{ query: CollectionQuery } missing from request body')
@@ -465,7 +465,7 @@ export class Session {
     }
   }
 
-  async fetch(query: CollectionQuery<any, any>) {
+  async fetch(query: CollectionQuery) {
     try {
       const result = await this.db.fetch(query, {
         skipRules: hasAdminAccess(this.token),

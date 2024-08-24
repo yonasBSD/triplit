@@ -99,9 +99,7 @@ import { prepareQuery } from './query/prepare.js';
 import { getCollectionPermissions } from './schema/permissions.js';
 import { genToArr } from './utils/generator.js';
 
-interface TransactionOptions<
-  M extends Models<any, any> | undefined = undefined
-> {
+interface TransactionOptions<M extends Models = Models> {
   schema?: StoreSchema<M>;
   skipRules?: boolean;
   logger?: Logger;
@@ -110,7 +108,7 @@ interface TransactionOptions<
 
 const EXEMPT_FROM_WRITE_RULES = new Set(['_metadata']);
 
-async function checkWritePermissions<M extends Models<any, any> | undefined>(
+async function checkWritePermissions<M extends Models>(
   dbTx: DBTransaction<M>,
   storeTx: TripleStoreApi,
   id: EntityId,
@@ -170,12 +168,15 @@ async function checkWritePermissions<M extends Models<any, any> | undefined>(
   );
 
   const { results } = await fetchOne<M, any>(
-    dbTx.db,
     storeTx,
     query,
     initialFetchExecutionContext(),
     {
       schema: schema.collections,
+      session: {
+        systemVars: dbTx.db.systemVars,
+        roles: dbTx.db.sessionRoles,
+      },
     }
   );
   if (!results) {
@@ -188,8 +189,8 @@ async function checkWritePermissions<M extends Models<any, any> | undefined>(
   }
 }
 
-async function checkWriteRules<M extends Models<any, any> | undefined>(
-  caller: DBTransaction<M>,
+async function checkWriteRules<M extends Models>(
+  dbTx: DBTransaction<M>,
   tx: TripleStoreApi,
   id: EntityId,
   schema: StoreSchema<M> | undefined
@@ -211,19 +212,22 @@ async function checkWriteRules<M extends Models<any, any> | undefined>(
       } as CollectionQuery<M, any>,
       collections as M,
       {
-        roles: caller.db.sessionRoles,
+        roles: dbTx.db.sessionRoles,
       },
       {
         skipRules: false,
       }
     );
     const { results } = await fetchOne<M, any>(
-      caller.db,
       tx,
       query,
       initialFetchExecutionContext(),
       {
         schema: collections,
+        session: {
+          systemVars: dbTx.db.systemVars,
+          roles: dbTx.db.sessionRoles,
+        },
       }
     );
     if (!results) {
@@ -309,7 +313,7 @@ async function triplesToEntityOpSet(
   return opSet;
 }
 
-export class DBTransaction<M extends Models<any, any> | undefined> {
+export class DBTransaction<M extends Models> {
   schema: StoreSchema<M> | undefined;
   private _schema: Entity | undefined;
   private _permissionCache: Map<string, boolean> = new Map();
@@ -624,8 +628,7 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
   };
 
   // Doing this as a TS fix, but would like to properly define the _metadata scheam
-  readonly METADATA_COLLECTION_NAME =
-    '_metadata' as CollectionNameFromModels<M>;
+  readonly METADATA_COLLECTION_NAME = '_metadata';
 
   // The original current schema operating on the transaction
   async getSchema() {
@@ -710,6 +713,7 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     };
 
     const fullDoc = clientInputToDbModel(
+      // @ts-expect-error
       inputWithDefaults,
       collectionSchema?.schema
     );
@@ -859,7 +863,7 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
   async fetch<Q extends SchemaQueries<M>>(
     query: Q,
     options: DBFetchOptions = {}
-  ): Promise<Unalias<FetchResult<ToQuery<M, Q>>>> {
+  ): Promise<Unalias<FetchResult<M, ToQuery<M, Q>>>> {
     const schema = (await this.getSchema())?.collections as M;
     const fetchQuery = prepareQuery(
       query,
@@ -872,20 +876,23 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     // TODO: read scope?
     // See difference between this fetch and db fetch
     const { results } = await fetch<M, Q>(
-      this.db,
       this.storeTx,
       fetchQuery,
       initialFetchExecutionContext(),
       {
         schema,
         skipIndex: options.skipIndex,
+        session: {
+          systemVars: this.db.systemVars,
+          roles: this.db.sessionRoles,
+        },
       }
     );
     return fetchResultToJS(
       results,
       schema,
       fetchQuery.collectionName
-    ) as Unalias<FetchResult<Q>>;
+    ) as Unalias<FetchResult<M, Q>>;
   }
 
   // maybe make it public? Keeping private bc its only used internally
@@ -898,16 +905,18 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     id: string,
     options: DBFetchOptions = {}
   ): Promise<Unalias<
-    FetchResultEntity<ToQuery<M, CollectionQueryDefault<M, CN>>>
+    FetchResultEntity<M, ToQuery<M, CollectionQueryDefault<M, CN>>>
   > | null> {
     const query = this.query(collectionName).id(id).build() as SchemaQueries<M>;
-    return this.fetchOne(query, options);
+    return this.fetchOne(query, options) as Promise<Unalias<
+      FetchResultEntity<M, ToQuery<M, CollectionQueryDefault<M, CN>>>
+    > | null>;
   }
 
   async fetchOne<Q extends SchemaQueries<M>>(
     query: Q,
     options: DBFetchOptions = {}
-  ): Promise<Unalias<FetchResultEntity<ToQuery<M, Q>>> | null> {
+  ): Promise<Unalias<FetchResultEntity<M, ToQuery<M, Q>>> | null> {
     query = { ...query, limit: 1 };
     const result = await this.fetch(query, options);
     const entity = [...result.values()][0];
@@ -942,7 +951,10 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     await this.update(
       this.METADATA_COLLECTION_NAME,
       '_schema',
-      async (schemaEntity) => {
+      async (entity) => {
+        const schemaEntity = entity as UpdateTypeFromModel<
+          ModelFromModels<Models, string>
+        >;
         // If there are no collections, create property
         if (!schemaEntity.collections) schemaEntity.collections = {};
         const sortedOptional = optional ? optional.slice().sort() : undefined;
@@ -968,7 +980,10 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     await this.update(
       this.METADATA_COLLECTION_NAME,
       '_schema',
-      async (schema) => {
+      async (entity) => {
+        const schema = entity as UpdateTypeFromModel<
+          ModelFromModels<Models, string>
+        >;
         if (!schema.collections) schema.collections = {};
         delete schema.collections[collectionName];
       }
@@ -981,7 +996,10 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     await this.update(
       this.METADATA_COLLECTION_NAME,
       '_schema',
-      async (schema) => {
+      async (entity) => {
+        const schema = entity as UpdateTypeFromModel<
+          ModelFromModels<Models, string>
+        >;
         validateCollectionName(schema.collections, collectionName);
 
         const parentPath = path.slice(0, -1);
@@ -1007,7 +1025,10 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     await this.update(
       this.METADATA_COLLECTION_NAME,
       '_schema',
-      async (schema) => {
+      async (entity) => {
+        const schema = entity as UpdateTypeFromModel<
+          ModelFromModels<Models, string>
+        >;
         validateCollectionName(schema.collections, collectionName);
 
         const parentPath = path.slice(0, -1);
@@ -1032,7 +1053,10 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     await this.update(
       this.METADATA_COLLECTION_NAME,
       '_schema',
-      async (schema) => {
+      async (entity) => {
+        const schema = entity as UpdateTypeFromModel<
+          ModelFromModels<Models, string>
+        >;
         validateCollectionName(schema.collections, collectionName);
 
         const parentPath = path.slice(0, -1);
@@ -1066,7 +1090,10 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     await this.update(
       this.METADATA_COLLECTION_NAME,
       '_schema',
-      async (schema) => {
+      async (entity) => {
+        const schema = entity as UpdateTypeFromModel<
+          ModelFromModels<Models, string>
+        >;
         validateCollectionName(schema.collections, collectionName);
 
         const parentPath = path.slice(0, -1);
@@ -1095,7 +1122,10 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     await this.update(
       this.METADATA_COLLECTION_NAME,
       '_schema',
-      async (schema) => {
+      async (entity) => {
+        const schema = entity as UpdateTypeFromModel<
+          ModelFromModels<Models, string>
+        >;
         const collectionAttributes = schema.collections[collection];
         if (!collectionAttributes.rules) collectionAttributes.rules = {};
         if (!collectionAttributes.rules[scope])
@@ -1110,7 +1140,10 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     await this.update(
       this.METADATA_COLLECTION_NAME,
       '_schema',
-      async (schema) => {
+      async (entity) => {
+        const schema = entity as UpdateTypeFromModel<
+          ModelFromModels<Models, string>
+        >;
         const collectionAttributes = schema.collections[collection];
         delete collectionAttributes.rules[scope][id];
       }
@@ -1123,7 +1156,10 @@ export class DBTransaction<M extends Models<any, any> | undefined> {
     await this.update(
       this.METADATA_COLLECTION_NAME,
       '_schema',
-      async (schema) => {
+      async (entity) => {
+        const schema = entity as UpdateTypeFromModel<
+          ModelFromModels<Models, string>
+        >;
         validateCollectionName(schema.collections, collectionName);
 
         const parentPath = path.slice(0, -1);
@@ -1248,8 +1284,8 @@ export class ChangeTracker {
 }
 
 export function createUpdateProxy<
-  M extends Models<any, any> | undefined,
-  CN extends CollectionNameFromModels<M>
+  M extends Models,
+  CN extends CollectionNameFromModels<M> = CollectionNameFromModels<M>
 >(
   changeTracker: ChangeTracker,
   entityObj: any, // TODO: type this properly, should be an untimestamped entity

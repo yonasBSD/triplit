@@ -60,7 +60,7 @@ import { genToArr } from './utils/generator.js';
 const DEFAULT_CACHE_DISABLED = true;
 
 export interface Rule<
-  M extends Models<any, any>,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > {
   filter: QueryWhere<M, CN>;
@@ -68,7 +68,7 @@ export interface Rule<
 }
 
 export interface CollectionRules<
-  M extends Models<any, any>,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > {
   read?: Record<string, Rule<M, CN>>;
@@ -149,7 +149,7 @@ export type Migration = {
 
 type StorageSource = AsyncTupleStorageApi | TupleStorageApi;
 
-export interface DBConfig<M extends Models<any, any> | undefined> {
+export interface DBConfig<M extends Models = Models> {
   schema?: { collections: M; version?: number; roles?: Record<string, any> };
   migrations?:
     | Migration[]
@@ -168,29 +168,17 @@ export interface DBConfig<M extends Models<any, any> | undefined> {
 export const DEFAULT_STORE_KEY = 'default';
 
 export type CollectionFromModels<
-  M extends Models<any, any> | undefined,
-  CN extends CollectionNameFromModels<M> = any
-> = M extends Models<any, any>
-  ? M[CN]
-  : M extends undefined
-  ? undefined
-  : never;
+  M extends Models,
+  CN extends CollectionNameFromModels<M> = CollectionNameFromModels<M>
+> = M[CN];
 
 export type ModelFromModels<
-  M extends Models<any, any> | undefined,
-  CN extends CollectionNameFromModels<M> = any
-> = M extends Models<any, any>
-  ? M[CN]['schema']
-  : M extends undefined
-  ? undefined
-  : never;
+  M extends Models,
+  CN extends CollectionNameFromModels<M>
+> = M[CN]['schema'];
 
-export type CollectionNameFromModels<M extends Models<any, any> | undefined> =
-  isAnyOrUndefined<M> extends true
-    ? string
-    : M extends Models<any, any>
-    ? keyof M
-    : never;
+export type CollectionNameFromModels<M extends Models = Models> = keyof M &
+  string;
 
 export interface DBFetchOptions {
   skipRules?: boolean;
@@ -213,21 +201,12 @@ export function ruleToTuple(
   ]);
 }
 
-// export type FetchByIdQueryParams<
-//   M extends Models<any, any> | undefined,
-//   CN extends CollectionNameFromModels<M>
-// > = {
-//   include?: Parameters<
-//     ReturnType<typeof CollectionQueryBuilder<M, CN>>['include']
-//   >[0][];
-// };
-
 export type FetchByIdQueryParams<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > = Pick<CollectionQuery<M, CN>, 'include'>;
 
-type SchemaChangeCallback<M extends Models<any, any> | undefined> = (
+type SchemaChangeCallback<M extends Models> = (
   schema: StoreSchema<M> | undefined
 ) => void;
 
@@ -255,109 +234,109 @@ export type OpSet<T> = {
   deletes: [string, T][];
 };
 
-interface AfterCommitOptions<M extends Models<any, any> | undefined> {
+interface AfterCommitOptions<M extends Models> {
   when: 'afterCommit';
 }
-type AfterCommitCallback<M extends Models<any, any> | undefined> = (args: {
+type AfterCommitCallback<M extends Models> = (args: {
   opSet: EntityOpSet;
   tx: DBTransaction<M>;
   db: DB<M>;
 }) => void | Promise<void>;
 interface AfterInsertOptions<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > {
   when: 'afterInsert';
   collectionName: CN;
 }
 type AfterInsertCallback<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > = (args: {
-  entity: FetchResultEntity<CollectionQuery<M, CN>>;
+  entity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   tx: DBTransaction<M>;
   db: DB<M>;
 }) => void | Promise<void>;
 interface AfterUpdateOptions<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > {
   when: 'afterUpdate';
   collectionName: CN;
 }
 type AfterUpdateCallback<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > = (args: {
-  entity: FetchResultEntity<CollectionQuery<M, CN>>;
+  entity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   tx: DBTransaction<M>;
   db: DB<M>;
 }) => void | Promise<void>;
 interface AfterDeleteOptions<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > {
   when: 'afterDelete';
   collectionName: CN;
 }
 type AfterDeleteCallback<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > = (args: {
-  entity: FetchResultEntity<CollectionQuery<M, CN>>;
+  entity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   tx: DBTransaction<M>;
   db: DB<M>;
 }) => void | Promise<void>;
-interface BeforeCommitOptions<M extends Models<any, any> | undefined> {
+interface BeforeCommitOptions<M extends Models> {
   when: 'beforeCommit';
 }
-type BeforeCommitCallback<M extends Models<any, any> | undefined> = (args: {
+type BeforeCommitCallback<M extends Models> = (args: {
   opSet: EntityOpSet;
   tx: DBTransaction<M>;
   db: DB<M>;
 }) => void | Promise<void>;
 interface BeforeInsertOptions<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > {
   when: 'beforeInsert';
   collectionName: CN;
 }
 type BeforeInsertCallback<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > = (args: {
-  entity: FetchResultEntity<CollectionQuery<M, CN>>;
+  entity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   tx: DBTransaction<M>;
   db: DB<M>;
 }) => void | Promise<void>;
 interface BeforeUpdateOptions<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > {
   when: 'beforeUpdate';
   collectionName: CN;
 }
 type BeforeUpdateCallback<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > = (args: {
-  entity: FetchResultEntity<CollectionQuery<M, CN>>;
+  entity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   tx: DBTransaction<M>;
   db: DB<M>;
 }) => void | Promise<void>;
 interface BeforeDeleteOptions<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > {
   when: 'beforeDelete';
   collectionName: CN;
 }
 type BeforeDeleteCallback<
-  M extends Models<any, any> | undefined,
+  M extends Models,
   CN extends CollectionNameFromModels<M>
 > = (args: {
-  entity: FetchResultEntity<CollectionQuery<M, CN>>;
+  entity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   tx: DBTransaction<M>;
   db: DB<M>;
 }) => void | Promise<void>;
@@ -382,7 +361,7 @@ type TriggerCallback =
   | BeforeUpdateCallback<any, any>
   | BeforeDeleteCallback<any, any>;
 
-export type DBHooks<M extends Models<any, any> | undefined> = {
+export type DBHooks<M extends Models> = {
   afterCommit: [AfterCommitCallback<M>, AfterCommitOptions<M>][];
   afterInsert: [
     AfterInsertCallback<M, CollectionNameFromModels<M>>,
@@ -416,7 +395,7 @@ export type SystemVariables = {
   session: Record<string, any>;
 };
 
-export default class DB<M extends Models<any, any> | undefined = undefined> {
+export default class DB<M extends Models = Models> {
   tripleStore: TripleStore;
   systemVars: SystemVariables;
   cache: VariableAwareCache<M>;
@@ -501,7 +480,6 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
     this.logger.debug('Initializing', {
       //@ts-expect-error
       schema: schema && schemaToJSON(schema),
-      // @ts-expect-error
       tripleStoreSchema: tripleStoreSchema && schemaToJSON(tripleStoreSchema),
     });
 
@@ -512,12 +490,7 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
           .then(() => {
             this.setupSchemaListener();
           })
-          .then(() =>
-            this.initializeDBWithSchema(
-              // @ts-expect-error
-              tripleStoreSchema
-            )
-          )
+          .then(() => this.initializeDBWithSchema(tripleStoreSchema))
       : !!migrations
       ? this.storageReady
           // TODO: look into why test fails if we setup listener first for migrations
@@ -766,17 +739,20 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
     this.systemVars.global = { ...this.systemVars.global, ...variables };
   }
 
-  async overrideSchema(schema: StoreSchema<M>) {
-    // @ts-expect-error
+  async overrideSchema(schema: StoreSchema<M> | undefined) {
     const { successful, issues } = await overrideStoredSchema(this, schema);
     logSchemaChangeViolations(successful, issues, this.logger);
     return { successful, issues };
   }
 
+  async echoQuery<Q extends SchemaQueries<M>>(query: Q) {
+    return query;
+  }
+
   async fetch<Q extends SchemaQueries<M>>(
     query: Q,
     options: DBFetchOptions = {}
-  ): Promise<Unalias<FetchResult<ToQuery<M, Q>>>> {
+  ): Promise<Unalias<FetchResult<M, ToQuery<M, Q>>>> {
     this.logger.debug('fetch START', { query });
     await this.storageReady;
     const schema = (await this.getSchema())?.collections as M;
@@ -793,7 +769,6 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
       options.noCache === undefined ? DEFAULT_CACHE_DISABLED : options.noCache;
 
     const { results } = await fetch<M, Q>(
-      this,
       options.scope
         ? this.tripleStore.setStorageScope(options.scope)
         : this.tripleStore,
@@ -804,6 +779,10 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
         cache: noCache ? undefined : this.cache,
         skipRules: options.skipRules,
         skipIndex: options.skipIndex,
+        session: {
+          systemVars: this.systemVars,
+          roles: this.sessionRoles,
+        },
       }
     );
     this.logger.debug('fetch END', { query, result: results });
@@ -811,7 +790,7 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
       results,
       schema,
       fetchQuery.collectionName
-    ) as Unalias<FetchResult<ToQuery<M, Q>>>;
+    ) as Unalias<FetchResult<M, ToQuery<M, Q>>>;
   }
 
   async fetchTriples<Q extends SchemaQueries<M>>(
@@ -831,7 +810,6 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
     return [
       ...(
         await fetch<M, Q>(
-          this,
           options.scope
             ? this.tripleStore.setStorageScope(options.scope)
             : this.tripleStore,
@@ -841,10 +819,14 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
             schema: schema,
             stateVector: options.stateVector,
             skipRules: options.skipRules,
+            session: {
+              systemVars: this.systemVars,
+              roles: this.sessionRoles,
+            },
           }
         )
-      ).triples.values(),
-    ].flat();
+      ).triples,
+    ];
   }
 
   async fetchById<CN extends CollectionNameFromModels<M>>(
@@ -852,16 +834,18 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
     id: string,
     options: DBFetchOptions = {}
   ): Promise<Unalias<
-    FetchResultEntity<ToQuery<M, CollectionQueryDefault<M, CN>>>
+    FetchResultEntity<M, ToQuery<M, CollectionQueryDefault<M, CN>>>
   > | null> {
     const query = this.query(collectionName).id(id).build() as SchemaQueries<M>;
-    return this.fetchOne(query, options);
+    return this.fetchOne(query, options) as Promise<Unalias<
+      FetchResultEntity<M, ToQuery<M, CollectionQueryDefault<M, CN>>>
+    > | null>;
   }
 
   async fetchOne<Q extends SchemaQueries<M>>(
     query: Q,
     options: DBFetchOptions = {}
-  ): Promise<Unalias<FetchResultEntity<ToQuery<M, Q>>> | null> {
+  ): Promise<Unalias<FetchResultEntity<M, ToQuery<M, Q>>> | null> {
     query = { ...query, limit: 1 };
     const result = await this.fetch(query, options);
     const entity = [...result.values()][0];
@@ -892,7 +876,7 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
   subscribe<Q extends SchemaQueries<M>>(
     query: Q,
     onResults: (
-      results: Unalias<FetchResult<ToQuery<M, Q>>>
+      results: Unalias<FetchResult<M, ToQuery<M, Q>>>
     ) => void | Promise<void>,
     onError?: (error: any) => void | Promise<void>,
     options: DBFetchOptions = {}
@@ -915,26 +899,31 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
           ? DEFAULT_CACHE_DISABLED
           : options.noCache;
       const unsub = subscribe<M, Q>(
-        this,
         options.scope
           ? this.tripleStore.setStorageScope(options.scope)
           : this.tripleStore,
         subscriptionQuery,
-        (...args) => {
-          if (unsubscribed) return;
-          this.logger.debug('subscribe RESULTS', { query, results: args });
-          onResults(...args);
-        },
-        (...args) => {
-          if (unsubscribed) return;
-          onError?.(...args);
-        },
         {
           schema,
           cache: noCache ? undefined : this.cache,
           skipRules: options.skipRules,
           stateVector: options.stateVector,
           skipIndex: options.skipIndex,
+          session: {
+            systemVars: this.systemVars,
+            roles: this.sessionRoles,
+          },
+        },
+        (...args) => {
+          if (unsubscribed) return;
+          this.logger.debug('subscribe RESULTS', { query, results: args });
+          onResults(
+            ...(args as [results: Unalias<FetchResult<M, ToQuery<M, Q>>>])
+          );
+        },
+        (...args) => {
+          if (unsubscribed) return;
+          onError?.(...args);
         }
       );
       return unsub;
@@ -974,20 +963,23 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
           : options.noCache;
 
       const unsub = subscribeTriples<M, Q>(
-        this,
         options.scope
           ? this.tripleStore.setStorageScope(options.scope)
           : this.tripleStore,
         subscriptionQuery,
-        (tripMap) => onResults([...tripMap.values()].flat()),
-        onError,
         {
           schema,
           skipRules: options.skipRules,
           stateVector: options.stateVector,
           cache: noCache ? undefined : this.cache,
           skipIndex: options.skipIndex,
-        }
+          session: {
+            systemVars: this.systemVars,
+            roles: this.sessionRoles,
+          },
+        },
+        onResults,
+        onError
       );
       return unsub;
     };
@@ -1081,11 +1073,10 @@ export default class DB<M extends Models<any, any> | undefined = undefined> {
   ) {
     const operations = migration[direction];
     // Need to read from triple store manually because we block db.transaction() api and schema access
-    const { schema } = await readSchemaFromTripleStore(this.tripleStore);
+    const { schema } = await readSchemaFromTripleStore<M>(this.tripleStore);
     await this.tripleStore.transact(
       async (tripTx) => {
         const tx = new DBTransaction(this, tripTx, copyHooks(this.hooks), {
-          // @ts-expect-error storeSchema issue
           schema,
         });
         for (const operation of operations) {
