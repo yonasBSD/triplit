@@ -66,7 +66,10 @@ export {
   hashSchemaJSON,
   getSchemaFromPath,
 } from './schema/schema.js';
-export { getRolesFromSession } from './schema/permissions.js';
+export {
+  getRolesFromSession,
+  normalizeSessionVars,
+} from './schema/permissions.js';
 export { Schema } from './schema/builder.js';
 export { diffSchemas, getSchemaDiffIssues } from './schema/diff.js';
 export type { TObject } from './schema/schema.js';
@@ -100,6 +103,6 @@ export type { TimestampedObject, UnTimestampedObject } from './utils.js';
 export type { IsAny } from './utility-types.js';
 export * from './errors.js';
 // See ./data-types/index.ts for why this is necessary
-export type * from './data-types';
+export type * from './data-types/index.js';
 export * from './schema/export/index.js';
 export * from './utils/generator.js';

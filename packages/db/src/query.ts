@@ -3,11 +3,11 @@ import {
   Path,
   RelationPaths,
   RelationshipCollectionName,
-} from './schema/types';
+} from './schema/types/index.js';
 import { Timestamp, timestampCompare } from './timestamp.js';
 import { CollectionNameFromModels, ModelFromModels } from './db.js';
 import { TripleRow } from './triple-store-utils.js';
-import { encodeValue } from '@triplit/tuple-database';
+import { encodeValue } from '@triplit/tuple-database/helpers/codec';
 import {
   AndFilterGroup,
   CollectionQuery,
@@ -21,7 +21,7 @@ import {
   SubQueryFilter,
   ValueCursor,
   WhereFilter,
-} from './query/types';
+} from './query/types/index.js';
 
 export function isFilterStatement<
   M extends Models,
