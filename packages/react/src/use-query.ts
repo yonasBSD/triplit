@@ -57,7 +57,7 @@ export function useQuery<
   Q extends ClientQuery<M, CN>
 >(
   client: TriplitClient<M> | WorkerClient<M>,
-  query: ClientQueryBuilder<M, CN, Q>,
+  query: ClientQueryBuilder<M, CN, Q> | Q,
   options?: Partial<SubscriptionOptions>
 ): useQueryPayload<M, Q> {
   const [results, setResults] = useState<
@@ -71,7 +71,7 @@ export function useQuery<
   const [isInitialFetch, setIsInitialFetch] = useState(true);
 
   const hasResponseFromServer = useRef(false);
-  const builtQuery = query && query.build();
+  const builtQuery = query && ('build' in query ? query.build() : query);
   const fetching = fetchingLocal || (isInitialFetch && fetchingRemote);
   const stringifiedQuery = builtQuery && JSON.stringify(builtQuery);
 
@@ -192,7 +192,7 @@ export function usePaginatedQuery<
     return () => {
       unsubscribe();
     };
-  }, [stringifiedQuery]);
+  }, [stringifiedQuery, client]);
 
   const nextPage = useCallback(() => {
     setFetchingPage(true);
@@ -304,7 +304,7 @@ export function useInfiniteQuery<
     return () => {
       unsubscribe();
     };
-  }, [stringifiedQuery]);
+  }, [stringifiedQuery, client]);
 
   const loadMore = useCallback(() => {
     setFetchingMore(true);

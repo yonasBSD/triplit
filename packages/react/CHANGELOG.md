@@ -1,5 +1,19 @@
 # @triplit/react
 
+## 0.3.101
+
+### Patch Changes
+
+- 5eae93dc: Use client in hooks deps
+  - @triplit/client@0.4.12
+
+## 0.3.100
+
+### Patch Changes
+
+- 9a123967: Accept built/plain queries to hooks in addition to query build
+  - @triplit/client@0.4.11
+
 ## 0.3.99
 
 ### Patch Changes

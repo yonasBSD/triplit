@@ -1,5 +1,17 @@
 # @triplit/db
 
+## 0.3.74
+
+### Patch Changes
+
+- 5eae93dc: update exports
+
+## 0.3.73
+
+### Patch Changes
+
+- 99a5b854: Properly cleanup onClear listener data in clock
+
 ## 0.3.72
 
 ### Patch Changes
