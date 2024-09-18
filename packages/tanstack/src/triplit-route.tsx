@@ -42,6 +42,7 @@ export function triplitRoute<
       ) => Q),
   Component: ComponentType<{
     results: QueryResult<M, Q>[];
+    error: any;
     updateQuery: (newQuery: Q) => void;
   }>
 ): Parameters<
@@ -87,7 +88,19 @@ export function triplitRoute<
         const latestResults = resp.results ?? initialResults;
         return [...(latestResults?.values() ?? [])];
       }, [initialResults, resp?.results]);
-      return <Component results={results} updateQuery={updateQuery} />;
+      return (
+        <Component
+          results={results}
+          error={resp.error}
+          updateQuery={updateQuery}
+        />
+      );
     },
+    // Turn off caching to prevent stale local results
+    // https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#using-shouldreload-and-gctime-to-opt-out-of-caching
+    // Do not cache this route's data after it's unloaded
+    gcTime: 0,
+    // Only reload the route when the user navigates to it or when deps change
+    shouldReload: false,
   };
 }

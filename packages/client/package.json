@@ -15,7 +15,7 @@
     "sqlite"
   ],
   "packageManager": "yarn@3.4.1",
-  "version": "0.4.12",
+  "version": "0.4.13",
   "source": "./src/index.ts",
   "main": "./dist/index.js",
   "type": "module",
@@ -36,6 +36,11 @@
       "types": "./dist/worker-client/worker-client-operator.d.ts",
       "import": "./dist/worker-client/worker-client-operator.js",
       "default": "./dist/worker-client/worker-client-operator.js"
+    },
+    "./client-comlink-wrapper": {
+      "types": "./dist/worker-client/client-comlink-wrapper.d.ts",
+      "import": "./dist/worker-client/client-comlink-wrapper.js",
+      "default": "./dist/worker-client/client-comlink-wrapper.js"
     }
   },
   "scripts": {
