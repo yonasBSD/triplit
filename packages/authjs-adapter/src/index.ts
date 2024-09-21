@@ -9,7 +9,7 @@ import { HttpClient } from '@triplit/client';
 import { Models } from '@triplit/db';
 
 export type TriplitAdapterConnectionOptions = {
-  server: string;
+  serverUrl: string;
   token: string;
   schema?: Models;
   sessionCollectionName?: string;
@@ -26,7 +26,7 @@ export function TriplitAdapter(
   options: TriplitAdapterConnectionOptions
 ): Adapter {
   const client = new HttpClient({
-    server: options.server,
+    serverUrl: options.serverUrl,
     token: options.token,
     schema: options.schema,
   });
@@ -186,15 +186,15 @@ export function TriplitAdapter(
         collectionName: collectionNames.session,
         where: [['userId', '=', userId]],
       });
-      for (const [id] of sessions) {
-        await client.delete(collectionNames.session, id);
+      for (const session of sessions) {
+        await client.delete(collectionNames.session, session.id);
       }
       const accounts = await client.fetch({
         collectionName: collectionNames.account,
         where: [['userId', '=', userId]],
       });
-      for (const [id] of accounts) {
-        await client.delete(collectionNames.account, id);
+      for (const session of accounts) {
+        await client.delete(collectionNames.account, session.id);
       }
       await client.delete(collectionNames.user, userId);
       return user as unknown as AdapterUser;

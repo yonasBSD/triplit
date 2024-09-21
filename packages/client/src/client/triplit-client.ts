@@ -1,6 +1,5 @@
 import {
   DB,
-  Migration,
   UpdateTypeFromModel,
   CollectionNameFromModels,
   DBTransaction,
@@ -27,6 +26,7 @@ import {
   CollectionQueryDefault,
   FetchResultEntityFromParts,
   StoreSchema,
+  ClearOptions,
 } from '@triplit/db';
 import { decodeToken } from '../token.js';
 import {
@@ -169,10 +169,6 @@ export interface ClientOptions<M extends ClientSchema = ClientSchema> {
    * The URL of the server to connect to. If not provided, the client will not connect to a server.
    */
   serverUrl?: string;
-  /**
-   * @deprecated use `schema` instead
-   */
-  migrations?: Migration[];
   syncSchema?: boolean;
   transport?: SyncTransport;
   /**
@@ -225,10 +221,6 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
   syncEngine: SyncEngine;
   authOptions: AuthOptions;
 
-  /**
-   * @deprecated use `http` instead
-   */
-  remote: HttpClient<M>;
   http: HttpClient<M>;
 
   private defaultFetchOptions: {
@@ -252,7 +244,6 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
       serverUrl,
       syncSchema,
       transport,
-      migrations,
       clientId,
       variables,
       storage,
@@ -278,12 +269,6 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
     this.db = new DB<M>({
       clock,
       schema: dbSchema,
-      migrations: migrations
-        ? {
-            definitions: migrations,
-            scopes: ['cache'],
-          }
-        : undefined,
       variables,
       sources: getClientStorage(storage ?? DEFAULT_STORAGE_OPTION),
       logger: this.logger.scope('db'),
@@ -301,7 +286,7 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
       ...(serverUrl ? mapServerUrlToSyncOptions(serverUrl) : {}),
     };
 
-    this.http = this.remote = new HttpClient<M>({
+    this.http = new HttpClient<M>({
       serverUrl,
       token,
       schemaFactory: async () => (await this.db.getSchema())?.collections as M,
@@ -410,7 +395,7 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
 
     if (opts.policy === 'local-first') {
       const localResults = await this.fetchLocal(query, opts);
-      if (localResults.size > 0) return localResults;
+      if (localResults.length > 0) return localResults;
       try {
         await this.syncEngine.syncQuery(query);
       } catch (e) {
@@ -490,8 +475,13 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
    * - `full`: If true, clears the entire database. If false, only clears your application data. Defaults to `false`.
    * @returns a promise that resolves when the database has been cleared
    */
-  clear(options: { full?: boolean } = {}) {
+  clear(options: ClearOptions = {}) {
     return this.db.clear(options);
+  }
+
+  async reset(options: ClearOptions = {}) {
+    await this.syncEngine.reset();
+    await this.clear(options);
   }
 
   /**
@@ -895,11 +885,12 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
           compareCursors(query.after[0], [
             // @ts-expect-error
             firstEntry[1][cursorAttr], // TODO need to translate things like dates
-            firstEntry[0],
+            // @ts-expect-error
+            firstEntry[1].id,
           ]) > -1;
 
         // If we have overflowing data, we can move the window forward
-        const canMoveWindowForward = results.size >= query.limit!; // Pretty sure this cant be gt, but still
+        const canMoveWindowForward = results.length >= query.limit!; // Pretty sure this cant be gt, but still
 
         // If we can page forward or backward (from the perspective of the original query)
         const hasPreviousPage =
@@ -925,14 +916,16 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
           ? [
               // @ts-expect-error
               firstDataEntry[1][cursorAttr],
-              firstDataEntry[0],
+              // @ts-expect-error
+              firstDataEntry[1].id!,
             ]
           : undefined;
         rangeEnd = lastDataEntry
           ? [
               // @ts-expect-error
               lastDataEntry[1][cursorAttr],
-              lastDataEntry[0],
+              // @ts-expect-error
+              lastDataEntry[1].id!,
             ]
           : undefined;
 
@@ -956,11 +949,14 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
             options
           );
         } else {
-          onResults(new Map(entries), {
-            ...info,
-            hasNextPage: hasNextPage,
-            hasPreviousPage: hasPreviousPage,
-          });
+          onResults(
+            entries.map(([, entity]) => entity),
+            {
+              ...info,
+              hasNextPage: hasNextPage,
+              hasPreviousPage: hasPreviousPage,
+            }
+          );
         }
       };
 
@@ -1061,13 +1057,16 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
         results: Unalias<FetchResult<M, ToQuery<M, CQ>>>,
         info: { hasRemoteFulfilled: boolean }
       ) => {
-        const hasMore = results.size >= query.limit!;
+        const hasMore = results.length >= query.limit!;
         let entries = Array.from(results.entries());
         if (hasMore) entries = entries.slice(0, -1);
-        onResults(new Map(entries), {
-          hasRemoteFulfilled: info.hasRemoteFulfilled,
-          hasMore,
-        });
+        onResults(
+          entries.map(([, entity]) => entity),
+          {
+            hasRemoteFulfilled: info.hasRemoteFulfilled,
+            hasMore,
+          }
+        );
       };
 
       returnValue.loadMore = (pageSize?: number) => {
@@ -1092,7 +1091,7 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
     return returnValue as InfiniteSubscription;
   }
   /**
-   * Updates the `token` and/or `serverUrl` of the client. This will cause the client to close its current connection to the server and attempt reopen a new one with the provided options.
+   * Updates the `token` or `serverUrl` of the client. If the connection is currently open, it will be closed and you will need to call `connect()` again.
    *
    * @param options - The options to update the client with
    */
@@ -1105,14 +1104,10 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
     // handle updating the token and variables for auth purposes
     if (hasToken) {
       this.authOptions = { ...this.authOptions, token };
-
-      const decoded = decodeToken(
-        this.authOptions.token!,
-        this.authOptions.claimsPath
-      );
-
+      const decoded = this.authOptions.token
+        ? decodeToken(this.authOptions.token, this.authOptions.claimsPath)
+        : {};
       this.db = this.db.withSessionVars(decoded);
-
       // and update the sync engine
       updatedSyncOptions = { ...updatedSyncOptions, token };
     }

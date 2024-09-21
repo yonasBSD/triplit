@@ -153,7 +153,7 @@ export default Command({
         const schemaPath = path.join(getTriplitDir(), 'schema.ts');
         const schemaQuery = client
           .query('_metadata')
-          .entityId('_schema')
+          .id('_schema')
           // Avoid firing on optimistic changes
           .syncStatus('confirmed')
           .build();
@@ -172,7 +172,7 @@ export default Command({
           async (results, info) => {
             // Avoid firing on potentially stale results
             if (info.hasRemoteFulfilled) {
-              const schemaJSON = results.get('_schema');
+              const schemaJSON = results[0];
               const resultHash = hashSchemaJSON(schemaJSON.collections);
               const fileSchema = schemaToJSON({
                 collections: ctx.schema,

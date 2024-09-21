@@ -30,7 +30,6 @@ test('Builder API', () => {
     | 'select'
     | 'vars'
     | 'where'
-    | 'entityId'
     | 'subquery';
 
   const builder = client.query('a');
@@ -56,9 +55,6 @@ test('Builder API', () => {
 
   const builderWithWhere = builder.where([['attr', '=', 'foo']]);
   expectTypeOf<keyof typeof builderWithWhere>().toEqualTypeOf<BuilderKeys>();
-
-  const builderWithEntityId = builder.entityId('1');
-  expectTypeOf<keyof typeof builderWithEntityId>().toEqualTypeOf<BuilderKeys>();
 });
 
 describe('Collection name', () => {
@@ -114,26 +110,20 @@ describe('Queries', () => {
     {
       const result = await client.fetch(queryA);
       expectTypeOf<typeof result>().toEqualTypeOf<
-        Map<
-          string,
-          {
-            id: string;
-            attrA: string;
-          }
-        >
+        {
+          id: string;
+          attrA: string;
+        }[]
       >();
     }
     const queryB = client.query('b').build();
     {
       const result = await client.fetch(queryB);
       expectTypeOf<typeof result>().toEqualTypeOf<
-        Map<
-          string,
-          {
-            id: string;
-            attrB: string;
-          }
-        >
+        {
+          id: string;
+          attrB: string;
+        }[]
       >();
     }
   });

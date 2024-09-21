@@ -35,10 +35,6 @@ function parseError(error: string) {
 }
 
 export type HttpClientOptions<M extends ClientSchema> = {
-  /**
-   * @deprecated Use 'serverUrl' instead.
-   */
-  server?: string;
   serverUrl?: string;
   token?: string;
   schema?: M;
@@ -64,7 +60,7 @@ export class HttpClient<M extends ClientSchema = ClientSchema> {
     body: any,
     options: { isFile?: boolean } = { isFile: false }
   ) {
-    const serverUrl = this.options.serverUrl ?? this.options.server;
+    const serverUrl = this.options.serverUrl;
     if (!serverUrl) throw new TriplitError('No server url provided');
     if (!this.options.token) throw new TriplitError('No token provided');
     const headers: HeadersInit = {
@@ -289,23 +285,11 @@ export class HttpClient<M extends ClientSchema = ClientSchema> {
   }
 }
 
-export {
-  /**
-   *  @deprecated Use 'HttpClient' instead.
-   */
-  HttpClient as RemoteClient,
-};
-
 function deserializeHttpFetchResult<
   M extends Models,
   Q extends SchemaQueries<M>
 >(query: Q, result: [string, any][], schema?: any): FetchResult<M, Q> {
-  return new Map(
-    result.map((entry) => [
-      entry[0],
-      deserializeHttpEntity(query, entry[1], schema),
-    ])
-  );
+  return result.map((entry) => deserializeHttpEntity(query, entry[1], schema));
 }
 
 function deserializeHttpEntity<M extends Models, Q extends SchemaQueries<M>>(

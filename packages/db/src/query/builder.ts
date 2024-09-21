@@ -36,7 +36,8 @@ export class QueryBuilder<
   M extends Models,
   CN extends CollectionNameFromModels<M>,
   Q extends ModelQueries<M, CN> = CollectionQueryDefault<M, CN>
-> implements BuilderBase<CollectionQuery<M, CN>, 'collectionName', 'id'>
+> implements
+    BuilderBase<CollectionQuery<M, CN>, 'collectionName' | 'entityId', 'id'>
 {
   protected query: Q;
   constructor(query: Q) {
@@ -225,13 +226,6 @@ export class QueryBuilder<
 
   vars(vars: Record<string, any>) {
     return new QueryBuilder<M, CN, Q>({ ...this.query, vars });
-  }
-
-  /**
-   * @deprecated Use 'id()' instead.
-   */
-  entityId(entityId: string) {
-    return this.id(entityId);
   }
 }
 

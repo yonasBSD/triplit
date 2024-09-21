@@ -359,47 +359,6 @@ export class Session {
     }
   }
 
-  async getMigrationStatus() {
-    if (!hasAdminAccess(this.token)) return NotAdminResponse();
-    const schema = await this.db.getSchema();
-    if (!schema) {
-      return ServerResponse(200, { type: 'schemaless' });
-    }
-
-    const migrations = Object.values(await this.db.getAppliedMigrations()).sort(
-      (a, b) => a.id - b.id
-    );
-    const hash = hashSchemaJSON(schemaToJSON(schema)?.collections);
-
-    return ServerResponse(200, {
-      type: 'schema',
-      migrations,
-      schemaHash: hash,
-      schema,
-    });
-  }
-
-  async applyMigration({
-    migration,
-    direction,
-  }: {
-    migration: any;
-    direction: 'up' | 'down';
-  }) {
-    if (!hasAdminAccess(this.token)) return NotAdminResponse();
-    try {
-      if (!migration || !direction)
-        return errorResponse(
-          new TriplitError('Missing migration or direction')
-        );
-      await this.db.migrate([migration], direction);
-    } catch (e) {
-      if (isTriplitError(e)) return errorResponse(e);
-      return errorResponse(new TriplitError('Error applying migration'));
-    }
-    return ServerResponse(200);
-  }
-
   async getCollectionStats() {
     if (!hasAdminAccess(this.token)) return NotAdminResponse();
     const stats = await this.db.getCollectionStats();
@@ -459,22 +418,34 @@ export class Session {
 
   async fetch(query: CollectionQuery) {
     try {
+      const hasSelectWithoutId = query.select && !query.select.includes('id');
+
+      if (hasSelectWithoutId) {
+        // @ts-expect-error
+        query.select.push('id');
+      }
+
       const result = await this.db.fetch(query, {
         skipRules: hasAdminAccess(this.token),
       });
+
       const schema = (await this.db.getSchema())?.collections;
       const { collectionName } = query;
+
       const collectionSchema = schema?.[collectionName]?.schema;
-      const data = new Map(
-        [...result.entries()].map(([id, entity]) => [
-          id,
-          collectionSchema
-            ? collectionSchema.convertJSToJSON(entity, schema)
-            : entity,
-        ])
-      );
+      const data = result.map((entity) => {
+        const jsonEntity = collectionSchema
+          ? collectionSchema.convertJSToJSON(entity, schema)
+          : entity;
+        const entityId = jsonEntity.id;
+        if (hasSelectWithoutId && jsonEntity.id) {
+          delete jsonEntity.id;
+        }
+        return [entityId, jsonEntity];
+      });
+
       return ServerResponse(200, {
-        result: [...data.entries()],
+        result: data,
       });
     } catch (e) {
       return errorResponse(e as Error);
