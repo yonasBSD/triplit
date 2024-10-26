@@ -49,7 +49,8 @@ export class TriplitError extends Error {
   toJSON() {
     return {
       name: this.name,
-      message: this.baseMessage,
+      message: this.message,
+      baseMessage: this.baseMessage,
       status: this.status,
       contextMessage: this.contextMessage,
     };
@@ -359,6 +360,16 @@ export class UnrecognizedAttributeTypeError extends TriplitError {
   }
 }
 
+export class MalformedSchemaError extends TriplitError {
+  constructor(innerError: TriplitError, ...args: any[]) {
+    super(...args);
+    this.name = 'MalformedSchemaError';
+    this.baseMessage = `The schema provided is malformed.`;
+    this.contextMessage = `This was triggered by ${innerError.name}: ${innerError.message}`;
+    this.status = STATUS_CODES['Bad Request'];
+  }
+}
+
 export class EditingProtectedFieldError extends TriplitError {
   constructor(field: string, ...args: any[]) {
     super(...args);
@@ -548,7 +559,7 @@ export class QueryNotPreparedError extends TriplitError {
   constructor(...args: any[]) {
     super(...args);
     this.name = 'QueryNotPreparedError';
-    this.baseMessage = `The query has not been prepared yet. This indicates a bug. Please inform the Triplit team.`;
+    this.baseMessage = `The query has parameters that have not been prepared with the schema. This could indicate that the database does not have a schema or that it is not up-to-date. Run \`npx triplit schema diff\` to verify that the server’s schema is in sync with the client’s. If it is not, run \`npx triplit schema push\` to update the server’s schema.`;
     this.status = STATUS_CODES['Internal Server Error'];
   }
 }

@@ -33,6 +33,7 @@ import {
   InvalidSchemaPathError,
   WritePermissionError,
   TriplitError,
+  MalformedSchemaError,
 } from './errors.js';
 import { ValuePointer } from '@sinclair/typebox/value';
 import DB, {
@@ -81,6 +82,7 @@ import {
   FetchResult,
   FetchResultEntity,
   FetchResultEntityFromParts,
+  QueryWhere,
   SchemaQueries,
   ToQuery,
   Unalias,
@@ -99,6 +101,7 @@ import {
   DropRulePayload,
   SetAttributeOptionalPayload,
 } from './db/types/operations.js';
+import { and, or } from './query.js';
 
 interface TransactionOptions<M extends Models = Models> {
   schema?: StoreSchema<M>;
@@ -127,8 +130,8 @@ async function checkWritePermissions<M extends Models>(
   // If no permissions for collection, its exempt from rules
   if (!permissions) return;
 
-  let permissionsStatements = [];
-  let hasMatch = false;
+  let permissionsStatements: QueryWhere<M, any>[] = [];
+  let hasMatchingPermission = false;
   if (sessionRoles) {
     for (const sessionRole of sessionRoles) {
       const rolePermissions = permissions[sessionRole.key];
@@ -138,25 +141,29 @@ async function checkWritePermissions<M extends Models>(
 
       if (permission.filter) {
         // Must opt in to the permission
-        hasMatch = true;
+        hasMatchingPermission = true;
         // TODO: handle empty arrays
         if (Array.isArray(permission.filter)) {
-          permissionsStatements.push(...permission.filter);
+          permissionsStatements.push(permission.filter as QueryWhere<M, any>);
         }
       }
     }
   }
 
-  if (!hasMatch) {
+  if (!hasMatchingPermission) {
     // postUpdate is optional, so if there's nothing to check against, we can skip
     if (operation === 'postUpdate') return;
-    permissionsStatements = [false];
+    // Deny access
+    permissionsStatements = [[false]];
   }
 
   const query = prepareQuery(
     {
       collectionName,
-      where: [['id', '=', entityId], ...permissionsStatements],
+      where: [
+        ['id', '=', entityId],
+        or(permissionsStatements.map((filters) => and(filters))),
+      ],
     } as CollectionQuery<M, any>,
     schema.collections as M,
     {
@@ -426,16 +433,35 @@ export class DBTransaction<M extends Models> {
       newSchemaTriples.unshift(...schemaTriples);
     }
 
-    this._schema = this._schema ?? new Entity();
-    updateEntity(this._schema, newSchemaTriples);
+    // clone the schema so we can test the update
+    const updatedSchema = this._schema
+      ? Entity.clone(this._schema)
+      : new Entity();
+    updateEntity(updatedSchema, newSchemaTriples);
+
+    const updateSchemaDefinition = updatedSchema.data as
+      | SchemaDefinition
+      | undefined;
+
+    // test that the updated schema is valid
+    let collections;
+    try {
+      collections =
+        updateSchemaDefinition?.collections &&
+        collectionsDefinitionToSchema(updateSchemaDefinition.collections);
+    } catch (e) {
+      if (e instanceof TriplitError) throw new MalformedSchemaError(e);
+      throw e;
+    }
+
+    this._schema = updatedSchema;
+
     // Type definitions are kinda ugly here
-    const schemaDefinition = this._schema?.data as SchemaDefinition | undefined;
+    const schemaDefinition = this._schema?.data;
 
     this.schema = {
       version: schemaDefinition?.version ?? 0,
-      collections:
-        schemaDefinition?.collections &&
-        collectionsDefinitionToSchema(schemaDefinition.collections),
+      collections,
     } as StoreSchema<M>;
   };
 
