@@ -2,17 +2,12 @@ import * as ComLink from 'comlink';
 import type {
   TriplitClient as Client,
   ClientOptions,
-  FetchOptions,
-  InfiniteSubscription,
-  PaginatedSubscription,
-  SubscriptionOptions,
 } from '../client/triplit-client.js';
 import {
   ChangeTracker,
   ClearOptions,
   CollectionNameFromModels,
   CollectionQuery,
-  CollectionQueryDefault,
   DBTransaction,
   FetchResult,
   FetchResultEntity,
@@ -20,7 +15,6 @@ import {
   InsertTypeFromModel,
   JSONToSchema,
   ModelFromModels,
-  SchemaQueries,
   ToQuery,
   TransactionResult,
   Unalias,
@@ -33,6 +27,11 @@ import {
   ClientQueryDefault,
   ClientSchema,
   SchemaClientQueries,
+  SubscribeBackgroundOptions,
+  FetchOptions,
+  InfiniteSubscription,
+  PaginatedSubscription,
+  SubscriptionOptions,
 } from '../client/types';
 import { clientQueryBuilder } from '../client/query-builder.js';
 import SuperJSON from 'superjson';
@@ -307,12 +306,16 @@ export class WorkerClient<M extends ClientSchema = ClientSchema> {
     };
   }
 
-  subscribeBackground<CQ extends SchemaClientQueries<M>>(query: CQ) {
+  subscribeBackground<CQ extends SchemaClientQueries<M>>(
+    query: CQ,
+    options: SubscribeBackgroundOptions = {}
+  ) {
     const unsubPromise = (async () => {
       await this.initialized;
       return this.clientWorker.subscribeBackground(
         // @ts-expect-error
-        query
+        query,
+        options
       );
     })();
     return () => {

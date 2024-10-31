@@ -11,7 +11,6 @@ import {
   FetchResult,
   compareCursors,
   ValueCursor,
-  DBFetchOptions as AllDBFetchOptions,
   Attribute,
   TupleValue,
   schemaToJSON,
@@ -35,10 +34,17 @@ import { IndexedDbStorage } from '@triplit/db/storage/indexed-db';
 import { SyncTransport } from '../transport/transport.js';
 import { SyncEngine } from '../sync-engine.js';
 import {
+  ClientDBFetchOptions,
   ClientQuery,
   ClientQueryDefault,
   ClientSchema,
+  ErrorCallback,
+  FetchOptions,
+  InfiniteSubscription,
+  PaginatedSubscription,
   SchemaClientQueries,
+  SubscribeBackgroundOptions,
+  SubscriptionOptions,
 } from './types';
 import { clientQueryBuilder } from './query-builder.js';
 import { HttpClient } from '../http-client/http-client.js';
@@ -75,39 +81,6 @@ function parseScope(query: ClientQuery<any, any>) {
       return ['outbox'];
   }
 }
-
-type DBFetchOptions = Pick<AllDBFetchOptions, 'noCache'>;
-
-export type LocalFirstFetchOptions = {
-  policy: 'local-first';
-};
-export type LocalOnlyFetchOptions = {
-  policy: 'local-only';
-};
-export type RemoteFirstFetchOptions = {
-  policy: 'remote-first';
-};
-export type RemoteOnlyFetchOptions = {
-  policy: 'remote-only';
-};
-export type LocalAndRemoteFetchOptions = {
-  policy: 'local-and-remote';
-  timeout?: number;
-};
-export type FetchOptions = DBFetchOptions &
-  (
-    | LocalFirstFetchOptions
-    | LocalOnlyFetchOptions
-    | RemoteFirstFetchOptions
-    | RemoteOnlyFetchOptions
-    | LocalAndRemoteFetchOptions
-  );
-
-type ClientSubscriptionOptions = {
-  localOnly: boolean;
-  onRemoteFulfilled?: () => void;
-};
-export type SubscriptionOptions = DBFetchOptions & ClientSubscriptionOptions;
 
 type StorageOptions =
   | { cache: Storage; outbox: Storage }
@@ -309,8 +282,13 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
     });
 
     if (syncSchema) {
-      this.syncEngine.subscribe(
-        this.db.query('_metadata').id('_schema').build()
+      this.subscribeBackground(
+        this.db.query('_metadata').id('_schema').build(),
+        {
+          onError: () => {
+            console.warn('Schema sync disconnected');
+          },
+        }
       );
     }
   }
@@ -426,7 +404,7 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
 
   private async fetchLocal<CQ extends SchemaClientQueries<M>>(
     query: CQ,
-    options?: Partial<DBFetchOptions>
+    options?: Partial<ClientDBFetchOptions>
   ): Promise<Unalias<FetchResult<M, ToQuery<M, CQ>>>> {
     const scope = parseScope(query);
     this.logger.debug('fetchLocal START', query, scope);
@@ -614,7 +592,7 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
       results: Unalias<FetchResult<M, ToQuery<M, CQ>>>,
       info: { hasRemoteFulfilled: boolean }
     ) => void | Promise<void>,
-    onError?: (error: any) => void | Promise<void>,
+    onError?: ErrorCallback,
     options?: Partial<SubscriptionOptions>
   ) {
     let unsubscribed = false;
@@ -639,8 +617,15 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
           }
         );
       } catch (e) {
-        if (onError) onError(e);
-        else warnError(e);
+        if (onError) {
+          if (e instanceof Error) onError(e);
+          else
+            onError(
+              new TriplitError(
+                'An unknown error occurred while running subscription'
+              )
+            );
+        } else warnError(e);
         return () => {};
       }
     }
@@ -695,7 +680,10 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
           opts.onRemoteFulfilled?.();
         }, 250);
       };
-      unsubscribeRemote = this.syncEngine.subscribe(query, onFulfilled);
+      unsubscribeRemote = this.syncEngine.subscribe(query, {
+        onQueryFulfilled: onFulfilled,
+        onQueryError: onError,
+      });
     }
     return () => {
       unsubscribed = true;
@@ -710,7 +698,7 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
       results: TripleRow[],
       info: { hasRemoteFulfilled: boolean }
     ) => void | Promise<void>,
-    onError?: (error: any) => void | Promise<void>,
+    onError?: ErrorCallback,
     options?: Partial<SubscriptionOptions>
   ) {
     let unsubscribed = false;
@@ -735,8 +723,15 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
           }
         );
       } catch (e) {
-        if (onError) onError(e);
-        else warnError(e);
+        if (onError) {
+          if (e instanceof Error) onError(e);
+          else
+            onError(
+              new TriplitError(
+                'An unknown error occurred while running subscription'
+              )
+            );
+        } else warnError(e);
         return () => {};
       }
     }
@@ -788,7 +783,10 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
           opts.onRemoteFulfilled?.();
         }, 250);
       };
-      unsubscribeRemote = this.syncEngine.subscribe(query, onFulfilled);
+      unsubscribeRemote = this.syncEngine.subscribe(query, {
+        onQueryFulfilled: onFulfilled,
+        onQueryError: onError,
+      });
     }
     return () => {
       unsubscribed = true;
@@ -800,8 +798,11 @@ export class TriplitClient<M extends ClientSchema = ClientSchema> {
   /**
    * Syncs a query to your local database in the background. This is useful to pre-fetch a larger portion of data and used in combination with local-only subscriptions.
    */
-  subscribeBackground<CQ extends SchemaClientQueries<M>>(query: CQ) {
-    return this.syncEngine.subscribe(query);
+  subscribeBackground<CQ extends SchemaClientQueries<M>>(
+    query: CQ,
+    options: SubscribeBackgroundOptions = {}
+  ) {
+    return this.syncEngine.subscribe(query, { onQueryError: options.onError });
   }
 
   /**
@@ -1262,17 +1263,6 @@ function warnError(e: any) {
     console.warn(e);
   }
 }
-
-export type PaginatedSubscription = {
-  unsubscribe: () => void;
-  nextPage: () => void;
-  prevPage: () => void;
-};
-
-export type InfiniteSubscription = {
-  unsubscribe: () => void;
-  loadMore: (pageSize?: number) => void;
-};
 
 function flipOrder(order: any) {
   if (!order) return undefined;
