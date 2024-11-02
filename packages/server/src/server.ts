@@ -123,6 +123,17 @@ export function createServer(options?: ServerOptions) {
 
   function getServer(projectId: string, upstream?: ServerOptions['upstream']) {
     if (triplitServers.has(projectId)) return triplitServers.get(projectId)!;
+    const dbOptions: Partial<DBConfig> = {
+      experimental: {},
+    };
+    if (process.env.ENTITY_CACHE_ENABLED) {
+      dbOptions.experimental!.entityCache = {
+        capacity: process.env.ENTITY_CACHE_CAPACITY
+          ? parseInt(process.env.ENTITY_CACHE_CAPACITY)
+          : 100000,
+      };
+    }
+    Object.assign(dbOptions, options?.dbOptions);
     const db = upstream
       ? new TriplitClient({
           clientId: projectId,
@@ -135,7 +146,7 @@ export function createServer(options?: ServerOptions) {
           source: dbSource,
           tenantId: projectId,
           clock: new DurableClock(),
-          ...(options?.dbOptions ?? {}),
+          ...dbOptions,
         });
     // @ts-expect-error
     const server = new TriplitServer(db, captureException);

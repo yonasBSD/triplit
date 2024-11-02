@@ -66,6 +66,11 @@ import {
   getResultTriplesFromContext,
   getSyncTriplesFromContext,
 } from './query/result-parsers.js';
+import {
+  assignEntityCacheToStore,
+  createEntityCache,
+} from './db/entity-cache.js';
+import { EntityCache, EntityCacheOptions } from './db/types/entity-cache.js';
 
 const DEFAULT_CACHE_DISABLED = true;
 export interface TransactOptions {
@@ -85,6 +90,9 @@ export interface DBConfig<M extends Models = Models> {
   clock?: Clock;
   variables?: Record<string, any>;
   logger?: Logger;
+  experimental?: {
+    entityCache?: EntityCacheOptions;
+  };
 }
 
 export const DEFAULT_STORE_KEY = 'default';
@@ -154,7 +162,8 @@ const TRIGGER_WHEN = [
 
 type TriggerWhen = (typeof TRIGGER_WHEN)[number];
 // TODO: type this better
-export type EntityOpSet = OpSet<[string, any]>;
+
+export type EntityOpSet = OpSet<[string, { oldEntity: any; entity: any }]>;
 
 export type OpSet<T> = {
   inserts: T[];
@@ -196,6 +205,7 @@ type AfterUpdateCallback<
   M extends Models,
   CN extends CollectionNameFromModels<M>
 > = (args: {
+  oldEntity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   entity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   tx: DBTransaction<M>;
   db: DB<M>;
@@ -211,7 +221,7 @@ type AfterDeleteCallback<
   M extends Models,
   CN extends CollectionNameFromModels<M>
 > = (args: {
-  entity: FetchResultEntity<M, CollectionQuery<M, CN>>;
+  oldEntity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   tx: DBTransaction<M>;
   db: DB<M>;
 }) => void | Promise<void>;
@@ -249,6 +259,7 @@ type BeforeUpdateCallback<
   M extends Models,
   CN extends CollectionNameFromModels<M>
 > = (args: {
+  oldEntity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   entity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   tx: DBTransaction<M>;
   db: DB<M>;
@@ -264,7 +275,7 @@ type BeforeDeleteCallback<
   M extends Models,
   CN extends CollectionNameFromModels<M>
 > = (args: {
-  entity: FetchResultEntity<M, CollectionQuery<M, CN>>;
+  oldEntity: FetchResultEntity<M, CollectionQuery<M, CN>>;
   tx: DBTransaction<M>;
   db: DB<M>;
 }) => void | Promise<void>;
@@ -301,7 +312,7 @@ export type DBHooks<M extends Models> = {
     AfterInsertOptions<M, CollectionNameFromModels<M>>
   >;
   afterUpdate: TriggerMap<
-    AfterInsertCallback<M, CollectionNameFromModels<M>>,
+    AfterUpdateCallback<M, CollectionNameFromModels<M>>,
     AfterUpdateOptions<M, CollectionNameFromModels<M>>
   >;
   afterDelete: TriggerMap<
@@ -332,6 +343,7 @@ export default class DB<M extends Models = Models> {
   tripleStore: TripleStore;
   systemVars: SystemVariables;
   cache: VariableAwareCache<M>;
+  entityCache: EntityCache | undefined;
 
   // DB setup
   private storageReady: Promise<void>;
@@ -372,6 +384,7 @@ export default class DB<M extends Models = Models> {
     clock,
     variables,
     logger,
+    experimental,
   }: DBConfig<M> = {}) {
     this.logger = logger ?? {
       info: console.info,
@@ -413,6 +426,10 @@ export default class DB<M extends Models = Models> {
     });
 
     this.cache = new VariableAwareCache(this);
+    if (experimental?.entityCache) {
+      this.entityCache = createEntityCache(experimental?.entityCache);
+      assignEntityCacheToStore(this.tripleStore, this.entityCache);
+    }
 
     // Add listener to update in memory schema
     const updateCachedSchemaOnChange: SchemaChangeCallback<M> = (schema) =>
@@ -665,6 +682,7 @@ export default class DB<M extends Models = Models> {
       {
         schema,
         cache: noCache ? undefined : this.cache,
+        entityCache: this.entityCache,
         skipRules: options.skipRules,
         skipIndex: options.skipIndex,
         session: {
@@ -808,6 +826,7 @@ export default class DB<M extends Models = Models> {
         {
           schema,
           cache: noCache ? undefined : this.cache,
+          entityCache: this.entityCache,
           skipRules: options.skipRules,
           stateVector: options.stateVector,
           skipIndex: options.skipIndex,
@@ -890,6 +909,7 @@ export default class DB<M extends Models = Models> {
           skipRules: options.skipRules,
           stateVector: options.stateVector,
           cache: noCache ? undefined : this.cache,
+          entityCache: this.entityCache,
           skipIndex: options.skipIndex,
           session: {
             systemVars: this.systemVars,
