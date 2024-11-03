@@ -1,5 +1,18 @@
 # @triplit/db
 
+## 0.5.4
+
+### Patch Changes
+
+- e9eb5c26: actually ensure clock listeners on store unsubscribe on db clear
+
+## 0.5.3
+
+### Patch Changes
+
+- f201dd5a: Move clock update into updating transaction
+- 8c97bfdb: Add experimental entity cache
+
 ## 0.5.2
 
 ### Patch Changes
