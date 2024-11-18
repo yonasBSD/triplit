@@ -1,9 +1,15 @@
 import { Server as TriplitServer } from '@triplit/server-core';
 import { TriplitClient, ClientSchema } from '@triplit/client';
 import { describe, vi, it, expect } from 'vitest';
-import DB, { Models, Schema as S, genToArr, or } from '@triplit/db';
+import DB, {
+  Models,
+  Schema as S,
+  StoreSchema,
+  genToArr,
+  or,
+} from '@triplit/db';
 import { MemoryBTreeStorage as MemoryStorage } from '@triplit/db/storage/memory-btree';
-import { hashQuery } from '@triplit/client';
+import { hashQuery } from '@triplit/db';
 import { pause } from '../utils/async.js';
 import {
   NOT_SERVICE_KEY,
@@ -1745,17 +1751,17 @@ describe('pagination syncing', () => {
         .map(([id]) => id)
     );
     // insert new todo
-    const new_id = 'inserted';
-    const date = '2021-01-05T00:00:00.001Z';
+    const NEW_ID = 'inserted';
+    const DATE = '2021-01-05T00:00:00.001Z';
     await alice.insert('todos', {
       text: 'todo',
-      created_at: new Date(date),
-      id: new_id,
+      created_at: new Date(DATE),
+      id: NEW_ID,
     });
     await pause(150);
     expect(bobSub.mock.calls.at(-1)[0]).toHaveLength(5);
     expect([...bobSub.mock.calls.at(-1)[0].map((e: any) => e.id)]).toEqual([
-      new_id,
+      NEW_ID,
       ...datesInASCOrder
         .slice()
         .reverse()
@@ -1763,8 +1769,8 @@ describe('pagination syncing', () => {
         .map(([id]) => id),
     ]);
     // delete a todo
-    await alice.delete('todos', new_id);
-    await pause();
+    await alice.delete('todos', NEW_ID);
+    await pause(200);
     expect(bobSub.mock.calls.at(-1)[0]).toHaveLength(5);
     expect([...bobSub.mock.calls.at(-1)[0].map((e: any) => e.id)]).toEqual(
       datesInASCOrder
@@ -2287,6 +2293,250 @@ describe('rules', () => {
     const lastCallVal = bobCallback.mock.calls.at(-1)[0];
     expect(lastCallVal).toHaveLength(1);
     expect(lastCallVal.find((e: any) => e.id === 'good-post')).toBeTruthy();
+  });
+});
+
+describe('permissions', () => {
+  const SCHEMA = {
+    roles: {
+      user: {
+        match: {
+          sub: '$userId',
+        },
+      },
+    },
+    collections: {
+      groupChats: {
+        schema: S.Schema({
+          id: S.String(),
+          memberIds: S.Set(S.String()),
+          name: S.String(),
+          adminId: S.String(),
+        }),
+        permissions: {
+          user: {
+            read: {
+              filter: [['memberIds', 'has', '$role.userId']],
+            },
+            update: {
+              filter: [['adminId', '=', '$role.userId']],
+            },
+            insert: {
+              filter: [['memberIds', 'has', '$role.userId']],
+            },
+          },
+        },
+      },
+      messages: {
+        schema: S.Schema({
+          id: S.String(),
+          authorId: S.String(),
+          text: S.String(),
+          groupId: S.String(),
+          group: S.RelationById('groupChats', '$groupId'),
+        }),
+        permissions: {
+          user: {
+            read: {
+              filter: [['group.memberIds', 'has', '$role.userId']],
+            },
+            update: {
+              filter: [false],
+            },
+            insert: {
+              filter: [
+                ['group.memberIds', 'has', '$role.userId'],
+                ['authorId', '=', '$role.userId'],
+              ],
+            },
+          },
+        },
+      },
+    },
+    version: 0,
+  } satisfies StoreSchema<Models>;
+
+  // signing key = "integration-tests"
+  const ALICE_TOKEN =
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsIngtdHJpcGxpdC1wcm9qZWN0LWlkIjoidG9kb3MiLCJpYXQiOjE2OTc0NzkwMjd9.5sgJA0olA18LreY8_XTGx4_CAnoDLy9tvJsgUqTI2JU';
+  const BOB_TOKEN =
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJib2IiLCJ4LXRyaXBsaXQtcHJvamVjdC1pZCI6InRvZG9zIiwiaWF0IjoxNjk3NDc5MDI3fQ.S9lOFgpUnUnZuX19bzxkEnyoPDQ4oscpWmwA_NkEW5g';
+
+  describe('insert', async () => {
+    const server = new TriplitServer(new DB({ schema: SCHEMA }));
+    const alice = createTestClient(server, ALICE_TOKEN, {
+      clientId: 'alice',
+      schema: SCHEMA.collections,
+    });
+    const bob = createTestClient(server, BOB_TOKEN, {
+      clientId: 'bob',
+      schema: SCHEMA.collections,
+    });
+    it('restricts groupChat insertions', async () => {
+      const aliceSub = vi.fn();
+      const bobSub = vi.fn();
+      alice.subscribe(alice.query('groupChats').build(), aliceSub);
+      bob.subscribe(bob.query('groupChats').build(), bobSub);
+
+      await pause();
+
+      const { txId: aliceTx } = await alice.insert('groupChats', {
+        id: 'chat1',
+        memberIds: new Set(['alice']),
+        name: 'chat1',
+        adminId: 'alice',
+      });
+      const aliceErrorSub = vi.fn();
+      alice.onTxFailureRemote(aliceTx!, aliceErrorSub);
+
+      await pause();
+
+      expect(aliceErrorSub).not.toHaveBeenCalled();
+      expect(aliceSub).toHaveBeenCalled();
+      expect(aliceSub.mock.calls.at(-1)?.[0]).toHaveLength(1);
+      expect(bobSub).toHaveBeenCalled();
+      expect(bobSub.mock.calls.at(-1)?.[0]).toHaveLength(0);
+      const { txId } = await bob.insert('groupChats', {
+        id: 'chat2',
+        memberIds: new Set(['alice']),
+        name: 'chat2',
+        adminId: 'alice',
+      });
+      const bobErrorSub = vi.fn();
+      bob.onTxFailureRemote(txId!, bobErrorSub);
+      await pause();
+      expect(bobErrorSub).toHaveBeenCalled();
+    });
+
+    it('restricts message insertions', async () => {
+      const aliceSub = vi.fn();
+      const bobSub = vi.fn();
+      alice.subscribe(alice.query('messages').build(), aliceSub);
+      bob.subscribe(bob.query('messages').build(), bobSub);
+
+      await pause();
+      await alice.insert('messages', {
+        id: 'msg1',
+        groupId: 'chat1',
+        authorId: 'alice',
+        text: 'hello',
+      });
+      await pause();
+      // All group members get the messages in group
+      expect(aliceSub).toHaveBeenCalled();
+      expect(aliceSub.mock.calls.at(-1)?.[0]).toHaveLength(1);
+      expect(bobSub).toHaveBeenCalled();
+      expect(bobSub.mock.calls.at(-1)?.[0]).toHaveLength(1);
+      const { txId } = await bob.insert('messages', {
+        id: 'chat2',
+        groupId: 'chat1',
+        authorId: 'alice',
+        text: 'hello',
+      });
+      const bobErrorSub = vi.fn();
+      bob.onTxFailureRemote(txId!, bobErrorSub);
+      await pause();
+      expect(bobErrorSub).toHaveBeenCalled();
+      bobErrorSub.mockClear();
+      const { txId: txId2 } = await bob.insert('messages', {
+        id: 'msg2',
+        groupId: 'chat1',
+        authorId: 'bob',
+        text: 'hello',
+      });
+      bob.onTxFailureRemote(txId2!, bobErrorSub);
+      await pause();
+      expect(bobErrorSub).toHaveBeenCalled();
+    });
+  });
+
+  describe('update', async () => {
+    const serverDb = new DB({ schema: SCHEMA });
+    const server = new TriplitServer(serverDb);
+    const alice = createTestClient(server, ALICE_TOKEN, {
+      clientId: 'alice',
+      schema: SCHEMA.collections,
+    });
+    const bob = createTestClient(server, BOB_TOKEN, {
+      clientId: 'bob',
+      schema: SCHEMA.collections,
+    });
+
+    it('restricts groupChat updates', async () => {
+      // Create a group chat
+      await serverDb.insert(
+        'groupChats',
+        {
+          id: 'chat1',
+          memberIds: new Set(['alice', 'bob']),
+          name: 'chat1',
+          adminId: 'alice',
+        },
+        { skipRules: true }
+      );
+
+      await pause();
+      const aliceSub = vi.fn();
+      const bobSub = vi.fn();
+      alice.subscribe(alice.query('groupChats').build(), aliceSub);
+      bob.subscribe(bob.query('groupChats').build(), bobSub);
+
+      await pause();
+      expect(aliceSub).toHaveBeenCalled();
+      expect(aliceSub.mock.calls.at(-1)?.[0]).toHaveLength(1);
+      expect(bobSub).toHaveBeenCalled();
+      expect(bobSub.mock.calls.at(-1)?.[0]).toHaveLength(1);
+
+      // Bob cannot update group chat because he is not the admin
+      const { txId } = await bob.update('groupChats', 'chat1', (entity) => {
+        entity.name = 'updated';
+      });
+      const bobErrorSub = vi.fn();
+      bob.onTxFailureRemote(txId!, bobErrorSub);
+      await pause();
+      expect(bobErrorSub).toHaveBeenCalled();
+    });
+
+    it('restricts message updates', async () => {
+      const aliceSub = vi.fn();
+      const bobSub = vi.fn();
+      alice.subscribe(alice.query('messages').build(), aliceSub);
+      bob.subscribe(bob.query('messages').build(), bobSub);
+
+      await pause();
+      await alice.insert('messages', {
+        id: 'msg1',
+        groupId: 'chat1',
+        authorId: 'alice',
+        text: 'hello',
+      });
+      await pause();
+      expect(aliceSub).toHaveBeenCalled();
+      expect(aliceSub.mock.calls.at(-1)?.[0]).toHaveLength(1);
+      expect(bobSub).toHaveBeenCalled();
+      expect(bobSub.mock.calls.at(-1)?.[0]).toHaveLength(1);
+
+      // Alice cannot update message because message updates are illegal
+      {
+        const { txId } = await alice.update('messages', 'msg1', (entity) => {
+          entity.text = 'updated';
+        });
+        const errCallback = vi.fn();
+        alice.onTxFailureRemote(txId!, errCallback);
+        await pause();
+        expect(errCallback).toHaveBeenCalled();
+      }
+      // Bob cannot update message because message updates are illegal
+      {
+        const { txId } = await bob.update('messages', 'msg1', (entity) => {
+          entity.text = 'updated';
+        });
+        const errCallback = vi.fn();
+        bob.onTxFailureRemote(txId!, errCallback);
+        await pause();
+        expect(errCallback).toHaveBeenCalled();
+      }
+    });
   });
 });
 

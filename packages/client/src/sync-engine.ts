@@ -39,7 +39,7 @@ import {
 } from './client/types';
 import { Logger } from '@triplit/types/logger';
 import { genToArr } from '@triplit/db';
-import { hashQuery } from './utils/query.js';
+import { hashQuery } from '@triplit/db';
 
 type OnMessageReceivedCallback = (message: ServerSyncMessage) => void;
 type OnMessageSentCallback = (message: ClientSyncMessage) => void;
@@ -307,7 +307,7 @@ export class SyncEngine {
   /**
    * @hidden
    */
-  async disconnectQuery(id: string) {
+  disconnectQuery(id: string) {
     if (!this.queries.has(id)) return;
     const queryMetadata = this.queries.get(id)!;
     if (queryMetadata.hasSent) {
@@ -668,7 +668,7 @@ export class SyncEngine {
               await errorCallback(parsedError);
             }
           }
-          await this.disconnectQuery(queryKey);
+          this.disconnectQuery(queryKey);
         }
     }
   }

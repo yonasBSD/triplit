@@ -1,5 +1,27 @@
 # @triplit/db
 
+## 0.5.7
+
+### Patch Changes
+
+- 9107e262: Unify underlying storage subscription handlers for query subscriptions
+- 0cc53c85: export getDefaultValuesForCollection helper function
+- cb785390: fixup prepareQuery editing inmemory schema
+
+## 0.5.6
+
+### Patch Changes
+
+- dd8278d1: Fixup select: ['id'] query results
+
+## 0.5.5
+
+### Patch Changes
+
+- 8f004df6: add bun server support
+- Updated dependencies [8f004df6]
+  - @triplit/tuple-database@2.2.32
+
 ## 0.5.4
 
 ### Patch Changes

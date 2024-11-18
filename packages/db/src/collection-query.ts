@@ -554,7 +554,7 @@ function getEntitiesAtStateVector(
   );
 }
 
-async function getTriplesAfterStateVector(
+export async function getTriplesAfterStateVector(
   tx: TripleStoreApi,
   stateVector: Map<string, number>
 ): Promise<TripleRow[]> {
@@ -1336,10 +1336,9 @@ export function initialFetchExecutionContext(): FetchExecutionContext {
   };
 }
 
-function isIdQuery(query: CollectionQuery) {
+function isCountQuery(query: CollectionQuery) {
   return (
-    query.select?.length === 1 &&
-    query.select[0] === 'id' &&
+    query.select?.length === 0 &&
     !query.after &&
     (!query.where || query.where.length === 0) &&
     (!query.order || query.order.length === 0) &&
@@ -1348,7 +1347,7 @@ function isIdQuery(query: CollectionQuery) {
   );
 }
 
-async function resolveIdQuery(
+async function resolveCountQuery(
   tx: TripleStoreApi,
   query: CollectionQuery,
   executionContext: FetchExecutionContext,
@@ -1405,12 +1404,12 @@ export async function loadQuery<
   options: FetchFromStorageOptions
 ): Promise<string[]> {
   if (
-    isIdQuery(
+    isCountQuery(
       // @ts-expect-error
       query
     )
   ) {
-    return resolveIdQuery(
+    return resolveCountQuery(
       tx,
       // @ts-expect-error
       query,
@@ -1667,9 +1666,9 @@ function entitySatisfiesAllFilters(
 export type CollectionQuerySchema<Q extends CollectionQuery<any, any>> =
   Q extends CollectionQuery<infer M, infer CN> ? ModelFromModels<M, CN> : never;
 
-function isQueryRelational(
+export function isQueryRelational(
   query: CollectionQuery<any, any>,
-  options: FetchFromStorageOptions
+  options: Pick<FetchFromStorageOptions, 'schema'>
 ) {
   const { where, include, order } = query;
   return !!(
@@ -1685,7 +1684,7 @@ function isQueryRelational(
   );
 }
 
-export function subscribeEntities<
+export async function subscribeEntities<
   M extends Models,
   Q extends CollectionQuery<M>
 >(
@@ -1698,18 +1697,20 @@ export function subscribeEntities<
   ) => void | Promise<void>,
   onError?: (error: any) => void | Promise<void>
 ) {
-  const { order, limit, collectionName } = query;
-  let where = query.where;
-  const sessionOptions = { ...options.session };
   const executionContext = initialFetchExecutionContext();
+  let localQuery = await replaceVariablesInQuery(
+    tripleStore,
+    query,
+    executionContext,
+    options
+  );
+  const sessionOptions = { ...options.session };
   const isRelationalQuery = isQueryRelational(query, options);
   if (isRelationalQuery) {
     throw new TriplitError(
       'Cannot use subscribeEntities with relational queries'
     );
   }
-
-  const model = options.schema?.[collectionName]?.schema;
 
   let results: Map<string, Entity> = new Map();
   async function initializeSubscriptionState() {
@@ -1728,14 +1729,6 @@ export function subscribeEntities<
       for (const key of results.keys()) {
         results.set(key, Entity.clone(results.get(key)!));
       }
-      where = (
-        await replaceVariablesInQuery(
-          tripleStore,
-          query,
-          executionContext,
-          options
-        )
-      ).where;
       await onResults(
         results,
         new Map(
@@ -1753,215 +1746,16 @@ export function subscribeEntities<
   const unsub = tripleStore.onWrite(async (storeWrites) => {
     await initializationPromise;
     try {
-      // Inserts should represent most changes
-      const entitiesWithInserts = new Set<string>();
-      const insertedTriples = [];
-      for (const triple of Object.values(storeWrites).flatMap(
-        (ops) => ops.inserts
-      )) {
-        if (splitIdParts(triple.id)[0] === query.collectionName) {
-          insertedTriples.push(triple);
-          entitiesWithInserts.add(triple.id);
-        }
-      }
-
-      // Deletes, though rarer and discouraged, should be handled
-      const entitiesWithDeletes = new Set<string>();
-      for (const triple of Object.values(storeWrites).flatMap(
-        (ops) => ops.deletes
-      )) {
-        if (splitIdParts(triple.id)[0] === query.collectionName) {
-          entitiesWithDeletes.add(triple.id);
-        }
-      }
-
-      const entityUpdates: Map<string, TripleRow[]> = insertedTriples.reduce(
-        (acc, triple) => {
-          if (acc.has(triple.id)) {
-            acc.get(triple.id).push(triple);
-          } else {
-            acc.set(triple.id, [triple]);
-          }
-          return acc;
-        },
-        new Map()
+      const update = await applyTriplesToSubscribedQuery<M, Q>(
+        tripleStore,
+        options,
+        results,
+        storeWrites,
+        localQuery
       );
-
-      const updatedEntitiesForQuery = new Set([
-        ...entitiesWithInserts,
-        ...entitiesWithDeletes,
-      ]);
-
-      // Early return prevents processing if no relevant entities were updated
-      // While a query is always scoped to a single collection this is safe
-      if (!updatedEntitiesForQuery.size) return;
-
-      let queryShouldRefire = false;
-
-      // Helpers for limit window
-      const endOfWindow = [...results.values()].at(-1);
-      const windowSize = results.size;
-
-      let nextResult = new Map(results);
-      const changeTriples = new Map();
-
-      // Loop through changed entities and determine if any query changes occurred
-      for (const entityId of updatedEntitiesForQuery) {
-        const isInPreviousResult = results.has(entityId);
-        const prevData = isInPreviousResult
-          ? { ...results.get(entityId)!.data }
-          : undefined;
-        // Get latest entity
-        let entity: Entity;
-        // If the entity is in the previous result set, we can apply incremental changes
-        // if any triples are deleted however we need to reload the entity
-        const incrementalChange =
-          isInPreviousResult && !entitiesWithDeletes.has(entityId);
-        if (incrementalChange) {
-          entity = nextResult.get(entityId)!;
-          const triples = entityUpdates.get(entityId) ?? [];
-          for (const triple of triples) {
-            const isChange = entity.applyTriple(triple);
-            if (isChange) {
-              if (changeTriples.has(entityId)) {
-                changeTriples.get(entityId)!.push(triple);
-              } else {
-                changeTriples.set(entityId, [triple]);
-              }
-            }
-          }
-        } else {
-          const entityTriples = await genToArr(
-            tripleStore.findByEntity(entityId)
-          );
-          entity = new Entity(entityTriples, model);
-          changeTriples.set(entityId, entity.triples);
-        }
-
-        // Determine if the entity should be in the result set
-        const isInCollection = entity.collectionName === query.collectionName;
-        const matchesFilters =
-          isInCollection &&
-          doesEntityMatchBasicWhere(
-            entity,
-            where ?? [],
-            options.schema && options.schema[query.collectionName]?.schema
-          ) &&
-          entityMatchesAfter(entity, query);
-
-        // Check if the result stays within the current range of the query based on the limit
-        // If it doesnt, we'll remove and might add it back when we backfill
-        let satisfiesLimitRange = true;
-        if (order && limit && windowSize >= limit) {
-          const sortFn = querySorter(query);
-          satisfiesLimitRange = sortFn(entity.data, endOfWindow?.data) < 1;
-        }
-
-        const isInNextResult = matchesFilters && satisfiesLimitRange;
-
-        // Entering => add to result set, send change triples
-        if (!isInPreviousResult && isInNextResult) {
-          nextResult.set(entityId, entity);
-          changeTriples.set(entityId, entity.triples);
-          queryShouldRefire = true;
-        }
-        // Updating => update result set, send change triples
-        else if (
-          isInPreviousResult &&
-          isInNextResult &&
-          !Equal(prevData, entity.data)
-        ) {
-          // Result changes already handled
-          // Change triples already handled
-          queryShouldRefire = true;
-        }
-        // Leaving => remove from result set, send change triples
-        else if (isInPreviousResult && !isInNextResult) {
-          nextResult.delete(entityId);
-          // change triples already handled
-          queryShouldRefire = true;
-        }
-        // No change => do nothing
-        else {
-          changeTriples.delete(entityId);
-        }
-      }
-      // No change to result, return early
-      if (!queryShouldRefire) return;
-      if (order || limit) {
-        const entries = [...nextResult];
-
-        // If we have removed data from the result set we need to backfill
-        if (limit && entries.length < limit) {
-          const lastResultEntry = entries.at(entries.length - 1);
-          const lastResultEntryId = lastResultEntry && lastResultEntry[0];
-          const lastResultData = lastResultEntry && lastResultEntry[1].data;
-          const orderAttr = order?.[0]?.[0];
-          const backFillQuery = orderAttr
-            ? {
-                ...query,
-                limit: limit - entries.length,
-                // If there is no explicit order, then order by Id is assumed
-                after: lastResultEntryId
-                  ? [
-                      [
-                        orderAttr
-                          ? getPropertyFromPath(
-                              lastResultData,
-                              orderAttr.split('.')
-                            )
-                          : lastResultEntryId,
-                        lastResultEntryId,
-                      ],
-                      false,
-                    ]
-                  : undefined,
-              }
-            : {
-                ...query,
-                where: [
-                  ...(query.where ?? []),
-                  ['id', 'nin', entries.map(([id]) => splitIdParts(id)[1])],
-                ],
-                limit: limit - entries.length,
-              };
-          const executionContext = initialFetchExecutionContext();
-          const backfillOrder = await loadQuery<M, Q>(
-            tripleStore,
-            backFillQuery,
-            executionContext,
-            {
-              schema: options.schema,
-              skipRules: options.skipRules,
-              // State vector needed in backfill?
-              cache: options.cache,
-              entityCache: options.entityCache,
-              skipIndex: options.skipIndex,
-              session: options.session,
-            }
-          );
-          const backFilledResults = getEntitiesFromContext<M, Q>(
-            query,
-            backfillOrder,
-            executionContext
-          );
-          for (const entry of backFilledResults) {
-            entries.push(entry);
-            changeTriples.set(entry[0], entry[1].triples);
-          }
-        }
-
-        if (order) {
-          // TODO: this fails...need loaded data...we dont have it from fetch...
-          sortEntities(query, entries);
-        }
-
-        nextResult = new Map(entries.slice(0, limit));
-      }
-
-      results = nextResult;
-      // console.timeEnd('query recalculation');
-      await onResults(results, changeTriples);
+      results = update.results;
+      if (update.deltaTriples.size === 0) return;
+      await onResults(results, update.deltaTriples);
     } catch (e) {
       console.error(e);
       onError && (await onError(e));
@@ -1976,7 +1770,8 @@ export function subscribeEntities<
         executionContext,
         { ...options, session: { ...sessionOptions, systemVars: vars } }
       );
-      if (Equal(updatedQuery.where, where)) return;
+      if (Equal(updatedQuery.where, localQuery.where)) return;
+      localQuery = updatedQuery;
       sessionOptions.systemVars = vars;
       await initializeSubscriptionState();
     },
@@ -1985,6 +1780,233 @@ export function subscribeEntities<
       unsub();
     },
   };
+}
+
+export async function applyTriplesToSubscribedQuery<
+  M extends Models,
+  Q extends CollectionQuery<M>
+>(
+  tripleStore: TripleStore,
+  options: FetchFromStorageOptions,
+  results: Map<string, Entity>,
+  storeWrites: Record<string, { inserts: TripleRow[]; deletes: TripleRow[] }>,
+  query: Q
+): Promise<{
+  results: Map<string, Entity>;
+  deltaTriples: Map<string, TripleRow[]>;
+}> {
+  const { order, limit, collectionName } = query;
+  let where = query.where;
+  const model = options.schema?.[collectionName]?.schema;
+
+  // Inserts should represent most changes
+  const entitiesWithInserts = new Set<string>();
+  const insertedTriples = [];
+  for (const triple of Object.values(storeWrites).flatMap(
+    (ops) => ops.inserts
+  )) {
+    if (splitIdParts(triple.id)[0] === query.collectionName) {
+      insertedTriples.push(triple);
+      entitiesWithInserts.add(triple.id);
+    }
+  }
+
+  // Deletes, though rarer and discouraged, should be handled
+  const entitiesWithDeletes = new Set<string>();
+  for (const triple of Object.values(storeWrites).flatMap(
+    (ops) => ops.deletes
+  )) {
+    if (splitIdParts(triple.id)[0] === query.collectionName) {
+      entitiesWithDeletes.add(triple.id);
+    }
+  }
+
+  const entityUpdates: Map<string, TripleRow[]> = insertedTriples.reduce(
+    (acc, triple) => {
+      if (acc.has(triple.id)) {
+        acc.get(triple.id).push(triple);
+      } else {
+        acc.set(triple.id, [triple]);
+      }
+      return acc;
+    },
+    new Map()
+  );
+
+  const updatedEntitiesForQuery = new Set([
+    ...entitiesWithInserts,
+    ...entitiesWithDeletes,
+  ]);
+
+  // Early return prevents processing if no relevant entities were updated
+  // While a query is always scoped to a single collection this is safe
+  if (!updatedEntitiesForQuery.size)
+    return { results, deltaTriples: new Map() };
+
+  let queryShouldRefire = false;
+
+  // Helpers for limit window
+  const endOfWindow = [...results.values()].at(-1);
+  const windowSize = results.size;
+
+  let nextResult = new Map(results);
+  const changeTriples = new Map();
+
+  // Loop through changed entities and determine if any query changes occurred
+  for (const entityId of updatedEntitiesForQuery) {
+    const isInPreviousResult = results.has(entityId);
+    const prevData = isInPreviousResult
+      ? { ...results.get(entityId)!.data }
+      : undefined;
+    // Get latest entity
+    let entity: Entity;
+    // If the entity is in the previous result set, we can apply incremental changes
+    // if any triples are deleted however we need to reload the entity
+    const incrementalChange =
+      isInPreviousResult && !entitiesWithDeletes.has(entityId);
+    if (incrementalChange) {
+      entity = nextResult.get(entityId)!;
+      const triples = entityUpdates.get(entityId) ?? [];
+      for (const triple of triples) {
+        const isChange = entity.applyTriple(triple);
+        if (isChange) {
+          if (changeTriples.has(entityId)) {
+            changeTriples.get(entityId)!.push(triple);
+          } else {
+            changeTriples.set(entityId, [triple]);
+          }
+        }
+      }
+    } else {
+      const entityTriples = await genToArr(tripleStore.findByEntity(entityId));
+      entity = new Entity(entityTriples, model);
+      changeTriples.set(entityId, entity.triples);
+    }
+
+    // Determine if the entity should be in the result set
+    const isInCollection = entity.collectionName === query.collectionName;
+    const matchesFilters =
+      isInCollection &&
+      doesEntityMatchBasicWhere(
+        entity,
+        where ?? [],
+        options.schema && options.schema[query.collectionName]?.schema
+      ) &&
+      entityMatchesAfter(entity, query);
+
+    // Check if the result stays within the current range of the query based on the limit
+    // If it doesnt, we'll remove and might add it back when we backfill
+    let satisfiesLimitRange = true;
+    if (order && limit && windowSize >= limit) {
+      const sortFn = querySorter(query);
+      satisfiesLimitRange = sortFn(entity.data, endOfWindow?.data) < 1;
+    }
+
+    const isInNextResult = matchesFilters && satisfiesLimitRange;
+    // Entering => add to result set, send change triples
+    if (!isInPreviousResult && isInNextResult) {
+      nextResult.set(entityId, entity);
+      changeTriples.set(entityId, entity.triples);
+      queryShouldRefire = true;
+    }
+    // Updating => update result set, send change triples
+    else if (
+      isInPreviousResult &&
+      isInNextResult &&
+      !Equal(prevData, entity.data)
+    ) {
+      // Result changes already handled
+      // Change triples already handled
+      queryShouldRefire = true;
+    }
+    // Leaving => remove from result set, send change triples
+    else if (isInPreviousResult && !isInNextResult) {
+      nextResult.delete(entityId);
+      // change triples already handled
+      queryShouldRefire = true;
+    }
+    // No change => do nothing
+    else {
+      changeTriples.delete(entityId);
+    }
+  }
+  // No change to result, return early
+  if (!queryShouldRefire) return { results, deltaTriples: new Map() };
+  if (order || limit) {
+    const entries = [...nextResult];
+
+    // If we have removed data from the result set we need to backfill
+    if (limit && entries.length < limit) {
+      const lastResultEntry = entries.at(entries.length - 1);
+      const lastResultEntryId = lastResultEntry && lastResultEntry[0];
+      const lastResultData = lastResultEntry && lastResultEntry[1].data;
+      const orderAttr = order?.[0]?.[0];
+      const backFillQuery = orderAttr
+        ? {
+            ...query,
+            limit: limit - entries.length,
+            // If there is no explicit order, then order by Id is assumed
+            after: lastResultEntryId
+              ? [
+                  [
+                    orderAttr
+                      ? getPropertyFromPath(
+                          lastResultData,
+                          orderAttr.split('.')
+                        )
+                      : lastResultEntryId,
+                    lastResultEntryId,
+                  ],
+                  false,
+                ]
+              : undefined,
+          }
+        : {
+            ...query,
+            where: [
+              ...(query.where ?? []),
+              ['id', 'nin', entries.map(([id]) => splitIdParts(id)[1])],
+            ],
+            limit: limit - entries.length,
+          };
+      const executionContext = initialFetchExecutionContext();
+      const backfillOrder = await loadQuery<M, Q>(
+        tripleStore,
+        backFillQuery,
+        executionContext,
+        {
+          schema: options.schema,
+          skipRules: options.skipRules,
+          // State vector needed in backfill?
+          cache: options.cache,
+          entityCache: options.entityCache,
+          skipIndex: options.skipIndex,
+          session: options.session,
+        }
+      );
+      const backFilledResults = getEntitiesFromContext<M, Q>(
+        query,
+        backfillOrder,
+        executionContext
+      );
+      for (const entry of backFilledResults) {
+        entries.push(entry);
+        changeTriples.set(entry[0], entry[1].triples);
+      }
+    }
+
+    if (order) {
+      // TODO: this fails...need loaded data...we dont have it from fetch...
+      sortEntities(query, entries);
+    }
+
+    nextResult = new Map(entries.slice(0, limit));
+  }
+
+  results = nextResult;
+  // console.timeEnd('query recalculation');
+  // await onResults(results, changeTriples);
+  return { results, deltaTriples: changeTriples };
 }
 
 export function subscribe<M extends Models, Q extends CollectionQuery<M>>(
@@ -2118,7 +2140,7 @@ export function subscribeTriples<
   onError?: (error: any) => void | Promise<void>
 ) {
   if (query.limit != undefined && !isQueryRelational(query, options)) {
-    const { unsubscribe } = subscribeEntities<M, Q>(
+    const unsubPromise = subscribeEntities<M, Q>(
       tripleStore,
       query,
       options,
@@ -2127,7 +2149,10 @@ export function subscribeTriples<
       },
       onError
     );
-    return unsubscribe;
+    return async () => {
+      const unsub = await unsubPromise;
+      unsub.unsubscribe();
+    };
   }
   const asyncUnSub = async () => {
     let triples: TripleRow[] = [];
@@ -2240,7 +2265,7 @@ function selectParser(entity: any) {
   };
 }
 
-async function replaceVariablesInQuery<Q extends CollectionQuery<any>>(
+export async function replaceVariablesInQuery<Q extends CollectionQuery<any>>(
   tx: TripleStoreApi,
   query: Q,
   executionContext: FetchExecutionContext,

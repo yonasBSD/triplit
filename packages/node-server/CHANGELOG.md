@@ -1,5 +1,40 @@
 # node-server
 
+## 0.4.33
+
+### Patch Changes
+
+- Updated dependencies [6f7f4dc9]
+  - @triplit/server@0.4.33
+
+## 0.4.32
+
+### Patch Changes
+
+- dfcabc47: manual version bump
+- Updated dependencies [dfcabc47]
+- Updated dependencies [eea4f952]
+  - @triplit/server@0.4.32
+
+## 0.4.30
+
+### Patch Changes
+
+- @triplit/server@0.4.30
+
+## 0.3.102
+
+### Patch Changes
+
+- Updated dependencies [8f004df6]
+  - @triplit/server@0.4.29
+
+## 0.3.101
+
+### Patch Changes
+
+- @triplit/server@0.4.28
+
 ## 0.3.100
 
 ### Patch Changes

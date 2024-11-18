@@ -1,5 +1,50 @@
 # @triplit/server
 
+## 0.4.33
+
+### Patch Changes
+
+- 6f7f4dc9: Manual version bump
+- Updated dependencies [9107e262]
+- Updated dependencies [0cc53c85]
+- Updated dependencies [cb785390]
+  - @triplit/db@0.5.7
+  - @triplit/client@0.5.16
+  - @triplit/server-core@0.5.10
+
+## 0.4.32
+
+### Patch Changes
+
+- dfcabc47: manual version bump
+- eea4f952: manual version bump
+
+## 0.4.30
+
+### Patch Changes
+
+- Updated dependencies [dd8278d1]
+  - @triplit/db@0.5.6
+  - @triplit/client@0.5.15
+  - @triplit/server-core@0.5.9
+
+## 0.4.29
+
+### Patch Changes
+
+- 8f004df6: add bun server support
+- Updated dependencies [8f004df6]
+  - @triplit/db@0.5.5
+  - @triplit/client@0.5.14
+  - @triplit/server-core@0.5.8
+
+## 0.4.28
+
+### Patch Changes
+
+- Updated dependencies [bdd50e7f]
+  - @triplit/client@0.5.13
+
 ## 0.4.27
 
 ### Patch Changes

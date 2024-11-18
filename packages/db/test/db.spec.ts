@@ -22,6 +22,7 @@ import {
   InvalidWhereClauseError,
   genToArr,
   DurableClock,
+  SessionVariableNotFoundError,
 } from '../src';
 import { hashSchemaJSON } from '../src/schema/schema.js';
 import { Models } from '../src/schema/types';
@@ -1666,6 +1667,7 @@ describe('database transactions', () => {
       });
       expect(insertSpy).not.toHaveBeenCalled();
     });
+    await pause(10);
     expect(insertSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -5204,9 +5206,10 @@ describe('selecting subqueries from schema', () => {
   });
 
   it('skipRules option should skip rules for subqueries', async () => {
-    const query = db.query('users').include('posts').build();
+    const userDb = db.withSessionVars({ USER_ID: 'irrelevant-user' });
+    const query = userDb.query('users').include('posts').build();
     {
-      const results = await db.fetch(query, { skipRules: false });
+      const results = await userDb.fetch(query, { skipRules: false });
       expect([...results.values()].map((user) => user.posts)).toMatchObject([
         new Map(),
         new Map(),
@@ -5214,7 +5217,7 @@ describe('selecting subqueries from schema', () => {
       ]);
     }
 
-    const results = await db.fetch(query, {
+    const results = await userDb.fetch(query, {
       skipRules: true,
     });
     expect(results).toHaveLength(3);
@@ -5590,6 +5593,15 @@ describe('variable conflicts', () => {
         expect(result.length).toBe(7);
       }
     }
+  });
+
+  it('Will throw an error if a variable is referenced that does not exist', async () => {
+    const db = baseDB.withSessionVars({ name: 'MATH101' });
+    await expect(
+      db.fetch(
+        db.query('classes').where(['name', '=', '$session.$name']).build()
+      )
+    ).rejects.toThrow(SessionVariableNotFoundError);
   });
 
   it('can access a nested data and record types via a variable', async () => {
