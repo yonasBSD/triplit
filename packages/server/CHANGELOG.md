@@ -1,5 +1,40 @@
 # @triplit/server
 
+## 0.4.37
+
+### Patch Changes
+
+- 57c1971f: revert to legacy express server
+
+## 0.4.36
+
+### Patch Changes
+
+- 7bb32f7e: Fixup ws ready state reference
+
+## 0.4.35
+
+### Patch Changes
+
+- 2713ca43: use hono for default node server implmenetation
+- Updated dependencies [2713ca43]
+- Updated dependencies [2713ca43]
+- Updated dependencies [2713ca43]
+  - @triplit/db@0.5.9
+  - @triplit/client@0.6.0
+  - @triplit/server-core@0.5.12
+
+## 0.4.34
+
+### Patch Changes
+
+- Updated dependencies [bdebed22]
+- Updated dependencies [f1ce9675]
+- Updated dependencies [7b1839b6]
+  - @triplit/db@0.5.8
+  - @triplit/client@0.5.17
+  - @triplit/server-core@0.5.11
+
 ## 0.4.33
 
 ### Patch Changes
