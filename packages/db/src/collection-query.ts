@@ -80,7 +80,7 @@ import { EntityCache } from './db/types/entity-cache.js';
 
 export default function CollectionQueryBuilder<
   M extends Models,
-  CN extends CollectionNameFromModels<M>
+  CN extends CollectionNameFromModels<M>,
 >(collectionName: CN, params?: Omit<CollectionQuery<M, CN>, 'collectionName'>) {
   const query: CollectionQueryDefault<M, CN> = {
     collectionName,
@@ -242,7 +242,7 @@ const RANGE_OPS = [...GT_OPS, ...LT_OPS] as const;
 
 async function* performRangeScan<
   M extends Models,
-  Q extends CollectionQuery<M, any>
+  Q extends CollectionQuery<M, any>,
 >(
   tx: TripleStoreApi,
   query: Q,
@@ -288,7 +288,7 @@ function safeFilterRangeConstraint(value: QueryValue): TupleValue {
 
 async function* performEqualityScan<
   M extends Models,
-  Q extends CollectionQuery<M, any>
+  Q extends CollectionQuery<M, any>,
 >(
   tx: TripleStoreApi,
   query: Q,
@@ -460,7 +460,7 @@ export async function getCandidateEntityIds(
 
 function identifierIncludesRelation<
   M extends Models,
-  CN extends CollectionNameFromModels<M>
+  CN extends CollectionNameFromModels<M>,
 >(identifier: string, schema: M, collectionName: CN) {
   return !!getRelationPathsFromIdentifier(identifier, schema, collectionName)
     .length;
@@ -468,7 +468,7 @@ function identifierIncludesRelation<
 
 export function getRelationsFromIdentifier<
   M extends Models,
-  CN extends CollectionNameFromModels<M>
+  CN extends CollectionNameFromModels<M>,
 >(
   identifier: string,
   schema: M,
@@ -489,7 +489,7 @@ export function getRelationsFromIdentifier<
 }
 export function getRelationPathsFromIdentifier<
   M extends Models,
-  CN extends CollectionNameFromModels<M>
+  CN extends CollectionNameFromModels<M>,
 >(identifier: string, schema: M, collectionName: CN): string[] {
   return Object.keys(
     getRelationsFromIdentifier(identifier, schema, collectionName)
@@ -498,7 +498,7 @@ export function getRelationPathsFromIdentifier<
 
 function getRootRelationAlias<
   M extends Models,
-  CN extends CollectionNameFromModels<M>
+  CN extends CollectionNameFromModels<M>,
 >(identifier: string, schema: M, collectionName: CN) {
   let schemaTraverser = createSchemaTraverser(schema, collectionName);
   const attrPath = identifier.split('.');
@@ -515,7 +515,7 @@ function getRootRelationAlias<
 
 function groupIdentifiersBySubquery<
   M extends Models,
-  CN extends CollectionNameFromModels<M>
+  CN extends CollectionNameFromModels<M>,
 >(identifiers: string[], schema: M, collectionName: CN) {
   const groupedIdentifiers: Record<string, Set<string>> = {};
   for (const identifier of identifiers) {
@@ -657,7 +657,7 @@ export async function getEntitiesBeforeAndAfterNewTriples(
 
 export async function fetchDeltaTriples<
   M extends Models,
-  Q extends CollectionQuery<M, any>
+  Q extends CollectionQuery<M, any>,
 >(
   tx: TripleStoreApi,
   query: Q,
@@ -688,7 +688,7 @@ export async function fetchDeltaTriples<
   ] of beforeAndAfterEntities) {
     const entityBeforeStateVector = beforeData;
     if (beforeData) {
-      beforeContext.executionCache.getEntity(changedEntityId, {
+      beforeContext.executionCache.setEntity(changedEntityId, {
         entity: beforeData,
       });
       beforeContext.executionCache.setComponent(changedEntityId, {
@@ -698,7 +698,7 @@ export async function fetchDeltaTriples<
     }
     const entityAfterStateVector = afterData;
     if (afterData) {
-      afterContext.executionCache.getEntity(changedEntityId, {
+      afterContext.executionCache.setEntity(changedEntityId, {
         entity: afterData,
       });
       afterContext.executionCache.setComponent(changedEntityId, {
@@ -937,22 +937,35 @@ function LoadCandidateEntities(
   options: FetchFromStorageOptions
 ): MapFunc<string, string> {
   return async (entityId) => {
-    // Load entity data if not loaded
-    if (!executionContext.executionCache.hasEntity(entityId)) {
-      let entity: Entity;
-      if (options.entityCache && options.entityCache.has(entityId)) {
-        entity = options.entityCache.get(entityId)!;
-      } else {
+    // Load entity data from current execution cache
+    let entity: Entity | undefined = executionContext.executionCache.hasEntity(
+      entityId
+    )
+      ? executionContext.executionCache.getData(entityId).entity
+      : undefined;
+
+    // If the entity is not already in the execution cache, go get it and add it to the execution cache
+    if (!entity) {
+      // Attempt to load from global cache
+      if (options.entityCache) entity = options.entityCache.get(entityId);
+
+      // If not cached, fetch from store
+      if (!entity) {
         const storeTriples = await genToArr(tx.findByEntity(entityId));
-        entity = constructEntities(storeTriples, options.schema).get(entityId)!;
-        if (options.entityCache) {
+        entity = constructEntities(storeTriples, options.schema).get(entityId);
+        // We MAY select candidates that don't exist, so only cache if we found an entity
+        // Update global cache if there is an entity
+        if (entity && options.entityCache) {
           options.entityCache.set(entityId, entity);
         }
       }
-      // Load raw entity
-      executionContext.executionCache.getEntity(entityId, {
-        entity,
-      });
+
+      // Add to execution cache if we found an entity
+      if (entity) {
+        executionContext.executionCache.setEntity(entityId, {
+          entity,
+        });
+      }
     }
 
     // Create query component if not loaded
@@ -984,6 +997,7 @@ function ApplyFilters(
   const filterOrder = getFilterPriorityOrder(where);
 
   return async (entityId) => {
+    if (!executionContext.executionCache.hasEntity(entityId)) return false;
     const entity = executionContext.executionCache.getData(entityId)?.entity;
     if (!entity) return false;
     if (!where) return true;
@@ -1285,7 +1299,7 @@ function applyCardinality(
   entityIds: string[],
   cardinality: QueryResultCardinality
 ): (string | null) | string[] {
-  return cardinality === 'one' ? entityIds[0] ?? null : entityIds;
+  return cardinality === 'one' ? (entityIds[0] ?? null) : entityIds;
 }
 
 export type FetchFromStorageOptions = {
@@ -1356,7 +1370,7 @@ async function resolveCountQuery(
     if (!executionContext.executionCache.hasEntity(entityId)) {
       const entity = constructEntities([triple], options.schema).get(entityId)!;
       // Load raw entity
-      executionContext.executionCache.getEntity(entityId, {
+      executionContext.executionCache.setEntity(entityId, {
         entity,
       });
     }
@@ -1384,7 +1398,7 @@ async function resolveCountQuery(
  */
 export async function loadQuery<
   M extends Models,
-  Q extends CollectionQuery<M, any>
+  Q extends CollectionQuery<M, any>,
 >(
   tx: TripleStoreApi,
   query: Q,
@@ -1481,7 +1495,7 @@ export async function loadQuery<
  */
 export async function fetch<
   M extends Models,
-  Q extends CollectionQuery<M, any>
+  Q extends CollectionQuery<M, any>,
 >(
   tx: TripleStoreApi,
   query: Q,
@@ -1677,7 +1691,7 @@ export function isQueryRelational(
 
 export async function subscribeEntities<
   M extends Models,
-  Q extends CollectionQuery<M>
+  Q extends CollectionQuery<M>,
 >(
   tripleStore: TripleStore,
   query: Q,
@@ -1771,7 +1785,7 @@ export async function subscribeEntities<
 
 export async function applyTriplesToSubscribedQuery<
   M extends Models,
-  Q extends CollectionQuery<M>
+  Q extends CollectionQuery<M>,
 >(
   tripleStore: TripleStore,
   options: FetchFromStorageOptions,
@@ -2117,7 +2131,7 @@ export function subscribe<M extends Models, Q extends CollectionQuery<M>>(
 
 export function subscribeTriples<
   M extends Models,
-  Q extends CollectionQuery<M, any>
+  Q extends CollectionQuery<M, any>,
 >(
   tripleStore: TripleStore,
   query: Q,
@@ -2284,7 +2298,7 @@ export async function replaceVariablesInQuery<Q extends CollectionQuery<any>>(
 export function getQueryVariables<
   M extends Models,
   CN extends CollectionNameFromModels<M>,
-  Q extends Partial<Pick<CollectionQuery<M, CN>, 'collectionName' | 'vars'>>
+  Q extends Partial<Pick<CollectionQuery<M, CN>, 'collectionName' | 'vars'>>,
 >(
   query: Q,
   executionContext: FetchExecutionContext,
@@ -2405,7 +2419,7 @@ async function loadRelationshipsIntoContextFromVariable(
 
 export function convertEntityToJS<
   M extends Models,
-  CN extends CollectionNameFromModels<M>
+  CN extends CollectionNameFromModels<M>,
 >(entity: Record<string, any>, schema?: M, collectionName?: CN) {
   // @ts-expect-error - weird types here
   const collectionSchema = schema?.[collectionName]?.schema;

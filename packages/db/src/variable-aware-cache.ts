@@ -203,7 +203,7 @@ export class VariableAwareCache<Schema extends Models> {
 
   queryToViews<
     CN extends CollectionNameFromModels<Schema>,
-    Q extends CollectionQuery<Schema, CN>
+    Q extends CollectionQuery<Schema, CN>,
   >(query: Q) {
     const variableFilters: FilterStatement<Schema, CN>[] = [];
     const nonVariableFilters = query.where
@@ -246,7 +246,7 @@ function loadViewResultIntoExecutionCache<M extends Models>(
   resultEntries.forEach((entry) => {
     const [entityId, entity] = entry;
     if (!executionContext.executionCache.hasEntity(entityId)) {
-      executionContext.executionCache.getEntity(entityId, {
+      executionContext.executionCache.setEntity(entityId, {
         entity: entity,
         // triples: view.triples.filter((t) => t.id === entityId),
       });
