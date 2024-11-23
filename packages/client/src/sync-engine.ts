@@ -27,7 +27,7 @@ import {
   ServerCloseReasonType,
   ServerErrorMessage,
   ServerSyncMessage,
-} from '@triplit/types/sync';
+} from './@triplit/types/sync.js';
 import {
   MissingConnectionInformationError,
   RemoteFetchFailedError,
@@ -38,13 +38,19 @@ import {
   ErrorCallback,
   SchemaClientQueries,
 } from './client/types';
-import { Logger } from '@triplit/types/logger';
+import { Logger } from './@triplit/types/logger.js';
 import { genToArr } from '@triplit/db';
 import { hashQuery } from '@triplit/db';
 
 type OnMessageReceivedCallback = (message: ServerSyncMessage) => void;
 type OnMessageSentCallback = (message: ClientSyncMessage) => void;
-type OnSessionErrorCallback = (type: ServerCloseReasonType) => void;
+
+type SessionErrors = Extract<
+  ServerCloseReasonType,
+  'ROLES_MISMATCH' | 'TOKEN_EXPIRED' | 'SCHEMA_MISMATCH' | 'UNAUTHORIZED'
+>;
+
+export type OnSessionErrorCallback = (type: SessionErrors) => void;
 
 const QUERY_STATE_KEY = 'query-state';
 
@@ -522,6 +528,11 @@ export class SyncEngine {
           type = 'UNKNOWN';
           retry = true;
         }
+        if (type === 'UNAUTHORIZED') {
+          this.logger.error(
+            'The server has closed the connection because the client is unauthorized. Please provide a valid token.'
+          );
+        }
         if (type === 'SCHEMA_MISMATCH') {
           this.logger.error(
             'The server has closed the connection because the client schema does not match the server schema. Please update your client schema.'
@@ -540,10 +551,15 @@ export class SyncEngine {
           );
         }
         if (
-          ['ROLES_MISMATCH', 'TOKEN_EXPIRED', 'SCHEMA_MISMATCH'].includes(type)
+          [
+            'ROLES_MISMATCH',
+            'TOKEN_EXPIRED',
+            'SCHEMA_MISMATCH',
+            'UNAUTHORIZED',
+          ].includes(type)
         ) {
           for (const handler of this.sessionErrorSubscribers) {
-            handler(type);
+            handler(type as SessionErrors);
           }
         }
 

@@ -25,13 +25,11 @@ import {
 } from '@triplit/types/sync';
 import { logger } from './logger.js';
 import { parseAndValidateToken, ProjectJWT } from '@triplit/server-core/token';
-import { Context, Hono } from 'hono';
+import { Hono } from 'hono';
 import { StatusCode } from 'hono/utils/http-status';
 
 import { WSContext, type UpgradeWebSocket, WSMessageReceive } from 'hono/ws';
 
-import { StoreKeys, resolveStorageStringOption } from './storage.js';
-import { env } from 'hono/adapter';
 import { logger as honoLogger } from 'hono/logger';
 import { cors } from 'hono/cors';
 
@@ -42,7 +40,7 @@ type Variables = {
 };
 
 export type ServerOptions = {
-  storage?: StoreKeys | Storage | (() => Storage);
+  storage?: Storage | (() => Storage);
   dbOptions?: DBConfig;
   watchMode?: boolean;
   verboseLogs?: boolean;
@@ -50,6 +48,11 @@ export type ServerOptions = {
     url: string;
     token: string;
   };
+  jwtSecret: string;
+  projectId?: string;
+  // do we still need this?
+  claimsPath?: string;
+  externalJwtSecret?: string;
 };
 
 export function createTriplitHonoServer(
@@ -59,11 +62,9 @@ export function createTriplitHonoServer(
   honoApp?: Hono
 ) {
   const dbSource = !!options?.storage
-    ? typeof options.storage === 'string'
-      ? resolveStorageStringOption(options.storage)
-      : typeof options.storage === 'function'
-        ? options.storage()
-        : options.storage
+    ? typeof options.storage === 'function'
+      ? options.storage()
+      : options.storage
     : undefined;
   if (options?.verboseLogs) logger.verbose = true;
   const dbOptions: Partial<DBConfig> = {
@@ -80,21 +81,21 @@ export function createTriplitHonoServer(
     : new DB({
         source: dbSource,
         clock: new DurableClock(),
-        tenantId: process.env.PROJECT_ID,
+        // Can this be removed?
+        tenantId: options.projectId,
         ...dbOptions,
       });
 
   // @ts-expect-error
   const server = new TriplitServer(db, captureException);
 
-  // DO THIS IN A CROSS PLATFORM WAY
-  if (process.env.ENTITY_CACHE_ENABLED) {
-    dbOptions.experimental!.entityCache = {
-      capacity: process.env.ENTITY_CACHE_CAPACITY
-        ? parseInt(process.env.ENTITY_CACHE_CAPACITY)
-        : 100000,
-    };
+  function parseAndValidateTokenWithOptions(token: string) {
+    return parseAndValidateToken(token, options.jwtSecret, options.projectId, {
+      payloadPath: options.claimsPath,
+      externalSecret: options.externalJwtSecret,
+    });
   }
+
   const app = (honoApp ?? new Hono()) as Hono<{ Variables: Variables }>;
 
   app.use(honoLogger());
@@ -130,15 +131,11 @@ export function createTriplitHonoServer(
       let syncConnection: SyncConnection | undefined = undefined;
       return {
         onOpen: async (_event, ws) => {
-          if (!ws.url) return;
-          const queryParams = ws.url.searchParams;
-
           let token: ProjectJWT | undefined = undefined;
 
           try {
-            const { data, error } = await parseAndValidateTokenWithEnv(
-              queryParams.get('token')!,
-              c
+            const { data, error } = await parseAndValidateTokenWithOptions(
+              c.req.query('token')!
             );
             if (error) throw error;
             token = data;
@@ -156,11 +153,11 @@ export function createTriplitHonoServer(
             return;
           }
           try {
-            const clientId = queryParams.get('client') as string;
-            const clientHash = queryParams.get('schema')
-              ? parseInt(queryParams.get('schema') as string)
+            const clientId = c.req.query('client') as string;
+            const clientHash = c.req.query('schema')
+              ? parseInt(c.req.query('schema') as string)
               : undefined;
-            const syncSchema = queryParams.get('sync-schema') === 'true';
+            const syncSchema = c.req.query('sync-schema') === 'true';
 
             syncConnection = server.openConnection(token, {
               clientId,
@@ -226,10 +223,8 @@ export function createTriplitHonoServer(
           logger.logMessage('received', parsedMessage);
           if (parsedMessage.type === 'UPDATE_TOKEN') {
             const { token: newToken } = parsedMessage.payload;
-            const { data, error } = await parseAndValidateTokenWithEnv(
-              newToken,
-              c
-            );
+            const { data, error } =
+              await parseAndValidateTokenWithOptions(newToken);
             if (error) {
               closeSocket(
                 ws,
@@ -300,7 +295,7 @@ export function createTriplitHonoServer(
       throw new NoTokenProvidedError('Missing authorization token');
     }
     try {
-      const { data, error } = await parseAndValidateTokenWithEnv(token, c);
+      const { data, error } = await parseAndValidateTokenWithOptions(token);
       if (error) throw error;
       c.set('token', data);
       return next();
@@ -345,14 +340,6 @@ export function createTriplitHonoServer(
   });
 
   return app;
-}
-
-function parseAndValidateTokenWithEnv(token: string, c: Context) {
-  const { JWT_SECRET, PROJECT_ID, CLAIMS_PATH, EXTERNAL_JWT_SECRET } = env(c);
-  return parseAndValidateToken(token, JWT_SECRET, PROJECT_ID, {
-    payloadPath: CLAIMS_PATH,
-    externalSecret: EXTERNAL_JWT_SECRET,
-  });
 }
 
 function sendMessage(

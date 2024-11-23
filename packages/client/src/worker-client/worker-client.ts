@@ -96,11 +96,28 @@ export class WorkerClient<M extends ClientSchema = ClientSchema> {
       sharedWorkerPort ??
       getTriplitWorkerEndpoint(options?.workerUrl);
     this.clientWorker = ComLink.wrap<Client<M>>(workerEndpoint);
-    const { schema } = options || {};
+    const {
+      schema,
+      onSessionError,
+      token,
+      refreshOptions,
+      autoConnect,
+      ...remainingOptions
+    } = options || {};
+    if (token) {
+      this.startSession(
+        token,
+        autoConnect,
+        refreshOptions && ComLink.proxy(refreshOptions)
+      );
+    }
+    if (onSessionError) {
+      this.onSessionError(onSessionError);
+    }
     // @ts-expect-error
     this.initialized = this.clientWorker.init(
       {
-        ...options,
+        ...remainingOptions,
         schema: schema && schemaToJSON({ collections: schema, version: 0 }),
       },
       ComLink.proxy(new WorkerLogger())

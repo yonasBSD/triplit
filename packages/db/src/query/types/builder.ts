@@ -39,8 +39,7 @@ export type FilterInput<
 > =
   | [typeof undefined]
   | FilterStatement<M, CN, P>
-  | [FilterStatement<M, CN, P>]
-  | WhereFilter<M, CN>[]
+  | QueryWhere<M, CN>
   | [QueryWhere<M, CN>];
 
 /**
@@ -49,7 +48,11 @@ export type FilterInput<
 export type OrderInput<
   M extends Models,
   CN extends CollectionNameFromModels<M>,
-> = OrderStatement<M, CN> | [OrderStatement<M, CN>] | [QueryOrder<M, CN>];
+> =
+  | [typeof undefined]
+  | OrderStatement<M, CN>
+  | QueryOrder<M, CN>
+  | [QueryOrder<M, CN>];
 
 /**
  * Input for builder after() clauses

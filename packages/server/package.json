@@ -1,7 +1,7 @@
 {
   "name": "@triplit/server",
   "packageManager": "yarn@3.4.1",
-  "version": "0.4.38",
+  "version": "0.5.0",
   "source": "./src/index.ts",
   "main": "./dist/index.js",
   "type": "module",
@@ -12,6 +12,16 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./hono": {
+      "types": "./dist/hono.d.ts",
+      "import": "./dist/hono.js",
+      "default": "./dist/hono.js"
+    },
+    "./cloudflare": {
+      "types": "./dist/cloudflare.d.ts",
+      "import": "./dist/cloudflare.js",
+      "default": "./dist/cloudflare.js"
     }
   },
   "files": [
