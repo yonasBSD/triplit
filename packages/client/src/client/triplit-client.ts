@@ -93,12 +93,17 @@ function parseScope(query: ClientQuery<any, any>) {
   }
 }
 
-type StorageOptions =
-  | { cache: Storage; outbox: Storage }
-  | 'indexeddb'
-  | 'memory';
+type SupportClientStorageProviders = 'indexeddb' | 'memory';
 
-function getClientStorage(storageOption: StorageOptions) {
+export type SimpleClientStorageOptions =
+  | SupportClientStorageProviders
+  | { type: SupportClientStorageProviders; name?: string };
+
+type SimpleStorageOrInstances =
+  | { cache: Storage; outbox: Storage }
+  | SimpleClientStorageOptions;
+
+function getClientStorage(storageOption: SimpleStorageOrInstances) {
   if (
     typeof storageOption === 'object' &&
     ('cache' in storageOption || 'outbox' in storageOption)
@@ -108,19 +113,25 @@ function getClientStorage(storageOption: StorageOptions) {
     return storageOption;
   }
 
-  if (storageOption === 'memory')
+  const storageType =
+    typeof storageOption === 'object' ? storageOption.type : storageOption;
+
+  const storageName =
+    typeof storageOption === 'object' ? storageOption.name : 'triplit';
+
+  if (storageType === 'memory')
     return {
       cache: new MemoryBTreeStorage(),
       outbox: new MemoryBTreeStorage(),
     };
 
-  if (storageOption === 'indexeddb') {
+  if (storageType === 'indexeddb') {
     if (typeof indexedDB === 'undefined') {
       throw new IndexedDbUnavailableError();
     }
     return {
-      cache: new IndexedDbStorage('triplit-cache'),
-      outbox: new IndexedDbStorage('triplit-outbox'),
+      cache: new IndexedDbStorage(`${storageName}-cache`),
+      outbox: new IndexedDbStorage(`${storageName}-outbox`),
     };
   }
 }
@@ -182,7 +193,7 @@ export interface ClientOptions<M extends ClientSchema = ClientSchema> {
   /**
    * The storage for the client cache. Can be `memory`, `indexeddb` or an object with `cache` and `outbox` properties. Defaults to `memory`. Read more about storage {@link https://www.triplit.dev/docs/client/storage | here }
    */
-  storage?: StorageOptions;
+  storage?: SimpleStorageOrInstances;
 
   /**
    * Default options for fetch queries. Read more about fetch options {@link https://www.triplit.dev/docs/client/fetch#policy | here }
