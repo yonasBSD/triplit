@@ -1,5 +1,20 @@
 # @triplit/server
 
+## 0.5.4
+
+### Patch Changes
+
+- Updated dependencies [bb973df7]
+  - @triplit/db@0.5.12
+  - @triplit/client@0.6.5
+  - @triplit/server-core@0.5.15
+
+## 0.5.3
+
+### Patch Changes
+
+- 72a807db: Add db download to legacy server
+
 ## 0.5.2
 
 ### Patch Changes
