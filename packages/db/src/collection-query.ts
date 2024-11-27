@@ -979,7 +979,10 @@ function LoadCandidateEntities(
     // If the entity is not already in the execution cache, go get it and add it to the execution cache
     if (!entity) {
       // Attempt to load from global cache
-      if (options.entityCache) entity = options.entityCache.get(entityId);
+      // If we have a state vector, we cannot use the global cache as it may be missing relevant triples
+      // TODO: add tests for entity cache + stateVector
+      if (options.entityCache && !options.stateVector)
+        entity = options.entityCache.get(entityId);
 
       // If not cached, fetch from store
       if (!entity) {
@@ -991,7 +994,7 @@ function LoadCandidateEntities(
         ).get(entityId);
         // We MAY select candidates that don't exist, so only cache if we found an entity
         // Update global cache if there is an entity
-        if (entity && options.entityCache) {
+        if (entity && options.entityCache && !options.stateVector) {
           options.entityCache.set(entityId, entity);
         }
       }
@@ -2293,21 +2296,13 @@ export function subscribeTriples<
     let triples: TripleRow[] = [];
     try {
       if (options.stateVector && options.stateVector.size > 0) {
-        if (query.limit != undefined) {
-          const deltaTriples = await fetchSyncTriplesRequeryArr<
-            M,
-            typeof query
-          >(tripleStore, query, initialFetchExecutionContext(), options);
-          triples = deltaTriples;
-        } else {
-          const deltaTriples = await fetchSyncTriplesReplay<M, typeof query>(
-            tripleStore,
-            query,
-            initialFetchExecutionContext(),
-            options
-          );
-          triples = deltaTriples;
-        }
+        const deltaTriples = await fetchSyncTriplesRequeryArr<M, typeof query>(
+          tripleStore,
+          query,
+          initialFetchExecutionContext(),
+          options
+        );
+        triples = deltaTriples;
       } else {
         const executionContext = initialFetchExecutionContext();
         const resultOrder = await loadQuery<M, Q>(
