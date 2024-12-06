@@ -1,5 +1,20 @@
 # @triplit/client
 
+## 0.6.10
+
+### Patch Changes
+
+- Updated dependencies [a80dbe04]
+  - @triplit/db@0.5.17
+
+## 0.6.9
+
+### Patch Changes
+
+- 4ccc6422: upgrade @sinclair/typebox
+- Updated dependencies [4ccc6422]
+  - @triplit/db@0.5.16
+
 ## 0.6.8
 
 ### Patch Changes
