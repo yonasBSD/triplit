@@ -186,7 +186,8 @@ export async function readSchemaFromTripleStore<M extends Models = Models>(
 
 export async function overrideStoredSchema<M extends Models>(
   db: DB<M>,
-  schema: StoreSchema<M> | undefined
+  schema: StoreSchema<M> | undefined,
+  { failOnBackwardsIncompatibleChange = false } = {}
 ): Promise<{
   successful: boolean;
   issues: PossibleDataViolations[];
@@ -203,6 +204,12 @@ export async function overrideStoredSchema<M extends Models>(
         if (diff.length === 0) return { successful: true, issues };
 
         issues = await getSchemaDiffIssues(tx, diff);
+
+        // TODO if `failOnBackwardsIncompatibleChange` is true, we should skip
+        // data checks for faster performance
+        if (failOnBackwardsIncompatibleChange && issues.length > 0) {
+          return { successful: false, issues };
+        }
         if (
           issues.length > 0 &&
           issues.some((issue) => issue.violatesExistingData)
@@ -242,41 +249,50 @@ export async function overrideStoredSchema<M extends Models>(
 export function logSchemaChangeViolations(
   successful: boolean,
   issues: PossibleDataViolations[],
-  logger?: Logger
+  {
+    logger,
+    forcePrintIssues = false,
+  }: { logger?: Logger; forcePrintIssues?: boolean } = {}
 ) {
-  const log = logger ?? console;
+  const log = logger ?? (console as unknown as Logger);
+  if (successful) {
+    log.info('Schema update successful');
+  } else {
+    log.error('Schema update failed. Please resolve the following issues:');
+  }
   const compatibleIssuesMessage = `Found ${issues.length} backwards incompatible schema changes.`;
   if (issues.length > 0) {
     log.warn(compatibleIssuesMessage);
   } else {
     log.info(compatibleIssuesMessage);
   }
-  if (successful) {
-    log.info('Schema update successful');
-  } else {
-    log.error('Schema update failed. Please resolve the following issues:');
+
+  if (!successful || forcePrintIssues) {
     const problematicIssues = issues.filter(
-      (issue) => issue.violatesExistingData
+      (issue) => forcePrintIssues || issue.violatesExistingData
     );
-    const collectionIssueMap = problematicIssues.reduce((acc, issue) => {
-      const collection = issue.context.collection;
-      const existingIssues = acc.get(collection) ?? [];
-      acc.set(collection, [...existingIssues, issue]);
-      return acc;
-    }, new Map<string, PossibleDataViolations[]>());
-    collectionIssueMap.forEach((issues, collection) => {
-      log.error(`\nCollection: '${collection}'`);
-      issues.forEach(({ issue, violatesExistingData, context, cure }) => {
-        if (!violatesExistingData) return;
-        log.error(
-          `\t'${context.attribute.join('.')}'
+    logSchemaIssues(log, problematicIssues);
+  }
+}
+
+function logSchemaIssues(logger: Logger, issues: PossibleDataViolations[]) {
+  const collectionIssueMap = issues.reduce((acc, issue) => {
+    const collection = issue.context.collection;
+    const existingIssues = acc.get(collection) ?? [];
+    acc.set(collection, [...existingIssues, issue]);
+    return acc;
+  }, new Map<string, PossibleDataViolations[]>());
+  collectionIssueMap.forEach((issues, collection) => {
+    logger.error(`\nCollection: '${collection}'`);
+    issues.forEach(({ issue, context, cure }) => {
+      logger.error(
+        `\t'${context.attribute.join('.')}'
 \t\tIssue: ${issue}
 \t\tFix:   ${cure}`
-        );
-      });
+      );
     });
-    log.info('');
-  }
+  });
+  logger.info('');
 }
 
 export function validateTriple(

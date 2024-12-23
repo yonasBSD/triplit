@@ -727,9 +727,16 @@ export default class DB<M extends Models = Models> {
     this.systemVars.global = { ...this.systemVars.global, ...variables };
   }
 
-  async overrideSchema(schema: StoreSchema<M> | undefined) {
-    const { successful, issues } = await overrideStoredSchema(this, schema);
-    logSchemaChangeViolations(successful, issues, this.logger);
+  async overrideSchema(
+    schema: StoreSchema<M> | undefined,
+    options?: Parameters<typeof overrideStoredSchema>[2]
+  ) {
+    const { successful, issues } = await overrideStoredSchema(
+      this,
+      schema,
+      options
+    );
+    logSchemaChangeViolations(successful, issues, { logger: this.logger });
     return { successful, issues };
   }
 
