@@ -51,7 +51,7 @@ import {
   TripleRow,
   TupleValue,
 } from './triple-store-utils.js';
-import { Equal } from '@sinclair/typebox/value';
+import { Value as TBValue } from '@sinclair/typebox/value';
 import { MIN, encodeValue } from '@triplit/tuple-database';
 import { QueryBuilder } from './query/builder.js';
 import {
@@ -1286,7 +1286,7 @@ export async function loadSubquery(
   } as CollectionQuery<any, any>;
 
   fullSubquery = prepareQuery(fullSubquery, schema, options.session, {
-    skipRules: options.skipRules,
+    skipRules: true,
   });
 
   // Push entity onto context stack
@@ -1475,6 +1475,7 @@ export async function loadQuery<
     executionContext,
     options
   );
+
   const { order, limit, after } = queryWithInsertedVars;
 
   // Load possible entity ids from indexes
@@ -1909,7 +1910,7 @@ export async function subscribeEntities<
         executionContext,
         { ...options, session: { ...sessionOptions, systemVars: vars } }
       );
-      if (Equal(updatedQuery.where, localQuery.where)) return;
+      if (TBValue.Equal(updatedQuery.where, localQuery.where)) return;
       localQuery = updatedQuery;
       sessionOptions.systemVars = vars;
       await initializeSubscriptionState();
@@ -2052,7 +2053,7 @@ export async function applyTriplesToSubscribedQuery<
     else if (
       isInPreviousResult &&
       isInNextResult &&
-      !Equal(prevData, entity.data)
+      !TBValue.Equal(prevData, entity.data)
     ) {
       // Result changes already handled
       // Change triples already handled
@@ -2256,7 +2257,7 @@ export function subscribe<M extends Models, Q extends CollectionQuery<M>>(
         executionContext,
         { ...options, session: { ...sessionOptions, systemVars: vars } }
       );
-      if (Equal(updatedQuery.where, where)) return;
+      if (TBValue.Equal(updatedQuery.where, where)) return;
       sessionOptions.systemVars = vars;
       await initializeSubscriptionState();
     },
@@ -2405,7 +2406,6 @@ export async function replaceVariablesInQuery<Q extends CollectionQuery<any>>(
   options: FetchFromStorageOptions
 ): Promise<Q> {
   const clauses = (query.where ?? []).filter(isFilterStatement);
-
   for (const clause of clauses) {
     const val = clause[2];
     if (isValueReferentialVariable(val)) {
@@ -2420,7 +2420,6 @@ export async function replaceVariablesInQuery<Q extends CollectionQuery<any>>(
   }
 
   const vars = getQueryVariables(query, executionContext, options);
-
   const where = query.where
     ? replaceVariablesInFilterStatements(query.where, vars)
     : undefined;
